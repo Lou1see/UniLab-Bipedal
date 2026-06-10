@@ -842,6 +842,129 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
     return playback_model
 
 
+class TorqueMonitor:
+    """Real-time joint torque overlay figure in the MuJoCo viewer.
+
+    Press T to toggle the torque monitor on/off. Shows live torque curves
+    for selected leg + torso joints.
+    """
+
+    _HISTORY_LEN = 300  # steps of history to keep
+    _RENDER_EVERY_N = 8  # only update figure every N frames
+    _LINE_COLORS: list[list[float]] = [
+        [1.0, 0.3, 0.3],  # red
+        [0.3, 1.0, 0.3],  # green
+        [0.3, 0.3, 1.0],  # blue
+        [1.0, 0.7, 0.0],  # orange
+        [1.0, 0.0, 1.0],  # magenta
+        [0.0, 0.8, 0.8],  # cyan
+        [1.0, 1.0, 0.3],  # yellow
+    ]
+
+    def __init__(
+        self,
+        torque_addrs: list[tuple[str, int]],
+        buffer_height: int = 300,
+    ) -> None:
+        import mujoco  # noqa: F811
+        from collections import deque
+
+        self._active = False
+        self._addrs = torque_addrs  # [(label, adr), ...]
+        self._ns = len(torque_addrs)
+        self._buf = [deque(maxlen=self._HISTORY_LEN) for _ in range(self._ns)]
+        self._fig = mujoco.MjvFigure()
+        mujoco.mjv_defaultFigure(self._fig)
+        self._step_cnt = 0
+        self._render_cnt = 0
+        self._buffer_height = buffer_height
+
+        if self._ns == 0:
+            return
+
+        # Configure figure
+        self._fig.flg_extend = 1
+        self._fig.flg_barplot = 0
+        self._fig.gridsize[0] = 4
+        self._fig.gridsize[1] = 3
+        self._fig.range[0][0] = 0
+        self._fig.range[0][1] = self._HISTORY_LEN - 1
+        self._fig.range[1][0] = -30
+        self._fig.range[1][1] = 30
+        self._fig.title = "Joint Torques (N·m)"
+        self._fig.xlabel = ""
+        self._fig.figurergba[0] = 0.05
+        self._fig.figurergba[1] = 0.05
+        self._fig.figurergba[2] = 0.1
+        self._fig.figurergba[3] = 0.85
+
+        for i, (label, _) in enumerate(self._addrs):
+            c = self._LINE_COLORS[i % len(self._LINE_COLORS)]
+            self._fig.linergb[i][0] = c[0]
+            self._fig.linergb[i][1] = c[1]
+            self._fig.linergb[i][2] = c[2]
+            self._fig.linename[i] = label[:20].encode()
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    def toggle(self) -> bool:
+        self._active = not self._active
+        status = "ON" if self._active else "OFF"
+        print(f"[play_interactive] Torque monitor {status} (T)")
+        return self._active
+
+    def update(self, viz_data: Any, step_passed: bool) -> None:
+        """Call every frame. Records torque data into a fixed-size deque."""
+        if not step_passed:
+            return
+        for i, (_, adr) in enumerate(self._addrs):
+            val = float(viz_data.sensordata[adr]) if adr >= 0 else 0.0
+            self._buf[i].append(val)
+        self._step_cnt += 1
+
+    def render(self, viewer: Any) -> None:
+        """Render torque figure onto the viewer (throttled to ~every N frames)."""
+        import mujoco
+
+        if not self._active or self._ns == 0:
+            return
+
+        self._render_cnt += 1
+        if self._render_cnt % self._RENDER_EVERY_N != 0:
+            return
+
+        # Update figure data from deque
+        for i in range(self._ns):
+            data = list(self._buf[i])
+            n = len(data)
+            self._fig.linepnt[i] = n
+            offset = max(0, self._step_cnt - self._HISTORY_LEN)
+            for j in range(n):
+                self._fig.linedata[i][2 * j] = float(offset + j)
+                self._fig.linedata[i][2 * j + 1] = data[j]
+
+        # Auto-scale Y range (based on last 100 points)
+        all_vals: list[float] = []
+        for buf in self._buf:
+            items = list(buf)
+            all_vals.extend(abs(v) for v in items[-100:])
+        if all_vals:
+            y_max = max(all_vals) * 1.2
+            y_max = max(y_max, 1.0)
+            self._fig.range[1][0] = -y_max
+            self._fig.range[1][1] = y_max
+
+        viewport = mujoco.MjrRect(
+            viewer.viewport.width - 420,
+            viewer.viewport.bottom,
+            420,
+            self._buffer_height,
+        )
+        viewer.set_figures([(viewport, self._fig)])
+
+
 def _build_playback_config(args, *, num_envs: int = 1) -> RslRlPlaybackConfig:
     return RslRlPlaybackConfig(
         task=str(args.task),
@@ -1150,6 +1273,26 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
     state_spec = mujoco.mjtState.mjSTATE_FULLPHYSICS
     ctrl_dt = env.cfg.ctrl_dt
 
+    # Pre-compute jointactuatorfrc sensor addresses for torque monitor (T key).
+    _TORQUE_DISPLAY_JOINTS = [
+        ("left_hip_pitch_torque", "L_hip_pitch"),
+        ("left_knee_torque", "L_knee"),
+        ("left_ankle_pitch_torque", "L_ank_pitch"),
+        ("right_hip_pitch_torque", "R_hip_pitch"),
+        ("right_knee_torque", "R_knee"),
+        ("right_ankle_pitch_torque", "R_ank_pitch"),
+        ("waist_pitch_torque", "waist_pitch"),
+    ]
+    _torque_addrs: list[tuple[str, int]] = []
+    for _sn, _label in _TORQUE_DISPLAY_JOINTS:
+        _sid = mujoco.mj_name2id(mj_model, mujoco.mjtObj.mjOBJ_SENSOR, _sn)
+        if _sid >= 0:
+            _torque_addrs.append((_label, mj_model.sensor_adr[_sid]))
+        else:
+            _torque_addrs.append((_label, -1))
+
+    torque_monitor = TorqueMonitor(_torque_addrs)
+
     playback_session.reset()
     render_velocity_arrows = str(args.action_mode) == "policy" and _should_render_velocity_arrows(
         env, reset_fn=playback_session.reset
@@ -1201,11 +1344,15 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             playback_session.reset()
             commander.zero()
             print("[play_interactive] reset (backspace)")
+        elif keycode in (ord("T"), ord("t")):
+            torque_monitor.toggle()
+            if not torque_monitor.active:
+                viewer.clear_figures()
         elif commander is not None:
             _handle_command_key(commander, keycode)
 
     print("[play_interactive] Opening viewer — close the window or press Esc to quit.")
-    print("[play_interactive] Controls: Space=pause/resume, N=single-step, +/-=speed")
+    print("[play_interactive] Controls: Space=pause/resume, N=single-step, +/-=speed, T=torque")
     if commander is not None:
         _print_keyboard_legend(args)
 
@@ -1244,6 +1391,8 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                 phys = playback_session.physics_state()[0].astype(np.float64)
                 mujoco.mj_setState(mj_model, viz_data, phys, state_spec)
                 mujoco.mj_forward(mj_model, viz_data)
+
+                torque_monitor.update(viz_data, step_passed=True)
 
                 if has_cam and bool(getattr(args, "camera_follow_body", True)):
                     base_pos = viz_data.xpos[focus_body_id]
@@ -1294,6 +1443,8 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
                         width=_VELOCITY_ARROW_WIDTH,
                         lateral_offset=_VELOCITY_ARROW_LATERAL_OFFSET,
                     )
+
+                torque_monitor.render(viewer)
 
                 viewer.sync()
 
