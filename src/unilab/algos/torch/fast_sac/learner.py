@@ -292,7 +292,7 @@ class SACCritic(nn.Module):
         v_max: float = 20.0,
         hidden_dim: int = 768,
         use_layer_norm: bool = True,
-        num_q_networks: int = 2,
+        num_q_networks: int = 2,    # 两个Qnetwork两个 Q 没有共享权重、没有信息交换、没有互相关注。唯一关联是训练时两个 loss 求和，推断时拿均值 —— 但这已经足够打破过估计的共谋了。
         device: str | torch.device = "cpu",
     ):
         super().__init__()
