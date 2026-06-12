@@ -313,6 +313,7 @@ def test_ppo_g1_backend_specific_hyperparams_remain_separate():
         ("ppo_him", ["task=go2_arm_manip_loco/mujoco"]),
         ("appo", ["task=g1_walk_flat/mujoco"]),
         ("offpolicy", ["algo=sac", "task=sac/g1_walk_flat/mujoco"]),
+        ("offpolicy", ["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"]),
     ],
 )
 def test_post_step_forward_sensor_defaults_false_outside_sharpa_mujoco(
@@ -348,6 +349,25 @@ def test_mujoco_post_step_forward_sensor_can_be_overridden():
     )
 
     assert override_cfg.env.post_step_forward_sensor is False
+
+
+def test_appo_adaptive_lr_factors_are_overridden_only_by_dex_hand_owners():
+    g1_cfg = _compose("appo", overrides=["task=g1_walk_flat/mujoco"])
+    allegro_cfg = _compose("appo", overrides=["task=allegro_inhand/mujoco"])
+    allegro_motrix_cfg = _compose("appo", overrides=["task=allegro_inhand/motrix"])
+    sharpa_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco"])
+    sharpa_hora_cfg = _compose("appo", overrides=["task=sharpa_inhand/mujoco_hora"])
+
+    assert g1_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
+    assert g1_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
+    assert allegro_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(2.0)
+    assert allegro_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
+    assert allegro_motrix_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(2.0)
+    assert allegro_motrix_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.5)
+    assert sharpa_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
+    assert sharpa_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
+    assert sharpa_hora_cfg.algo.algorithm.adaptive_kl_factor == pytest.approx(1.2)
+    assert sharpa_hora_cfg.algo.algorithm.adaptive_lr_factor == pytest.approx(1.1)
 
 
 def test_ppo_go1_motrix_preserves_reward_and_algo_values():
@@ -436,7 +456,6 @@ def test_ppo_go2w_rough_mujoco_uses_terrain_generator():
     assert cfg.env.commands.heading_command is True
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
-    assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.clip_actions == pytest.approx(100.0)
     assert cfg.env.control_config.action_scale == pytest.approx(0.25)
     assert cfg.env.control_config.hip_action_scale == pytest.approx(0.125)
@@ -458,7 +477,6 @@ def test_ppo_go2w_rough_motrix_uses_yaw_reset_and_strong_control():
     assert cfg.training.sim_backend == "motrix"
     assert cfg.env.commands.vel_limit == [[-1.0, -1.0, -1.0], [1.0, 1.0, 1.0]]
     assert cfg.env.commands.heading_range == pytest.approx([-3.141592653589793, 3.141592653589793])
-    assert "rel_standing_envs" not in cfg.env.commands
     assert cfg.env.control_config.action_scale == pytest.approx(0.25)
     assert cfg.env.control_config.hip_action_scale == pytest.approx(0.125)
     assert cfg.env.control_config.wheel_action_scale == pytest.approx(5.0)

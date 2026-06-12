@@ -120,10 +120,21 @@ def test_mujoco_visual_xml_paths_prefer_backend_visual_scene(tmp_path: Path):
     assert robot == robot_xml
 
 
-def _keyboard_env(with_commands: bool = True) -> Any:
+def _keyboard_env(
+    with_commands: bool = True,
+    *,
+    env_cls_name: str = "Env",
+    cfg_cls_name: str = "Cfg",
+    module: str = "tests.fake_env",
+    obs_contains_command: bool = False,
+) -> Any:
     info: dict[str, Any] = (
-        {"commands": np.zeros((1, 3), dtype=np.float32)} if with_commands else {"steps": 0}
+        {"commands": np.asarray([[0.37, -0.23, 0.19]], dtype=np.float32)}
+        if with_commands
+        else {"steps": 0}
     )
+    if obs_contains_command:
+        info["commands"] = np.asarray([[0.37, -0.23, 0.19]], dtype=np.float32)
     commands_cfg = (
         type(
             "Cmds",
@@ -137,9 +148,20 @@ def _keyboard_env(with_commands: bool = True) -> Any:
         if with_commands
         else None
     )
-    cfg = type("Cfg", (), {"commands": commands_cfg})()
-    state = type("State", (), {"info": info})()
-    return type("Env", (), {"state": state, "cfg": cfg})()
+    cfg_type = type(cfg_cls_name, (), {"__module__": module})
+    cfg = cfg_type()
+    cfg.commands = commands_cfg
+    obs = (
+        {"obs": np.asarray([[1.0, 0.37, -0.23, 0.19, 2.0]], dtype=np.float32)}
+        if obs_contains_command
+        else {"obs": np.asarray([[1.0, 2.0, 3.0]], dtype=np.float32)}
+    )
+    state = type("State", (), {"info": info, "obs": obs})()
+    env_type = type(env_cls_name, (), {"__module__": module})
+    env = env_type()
+    env.state = state
+    env.cfg = cfg
+    return env
 
 
 def test_build_keyboard_commander_disabled_when_flag_off():
@@ -173,6 +195,40 @@ def test_build_keyboard_commander_makes_keyboard_authoritative():
     assert env.state.info["commands"].tolist() == [[0.0, 0.0, 0.0]]
 
 
+def test_velocity_arrows_require_velocity_command_task_and_policy_obs():
+    mod = _load_script("play_interactive")
+
+    joystick_env = _keyboard_env(
+        env_cls_name="Go2WalkTask",
+        cfg_cls_name="Go2JoystickCfg",
+        module="unilab.envs.locomotion.go2.joystick",
+        obs_contains_command=True,
+    )
+    handstand_env = _keyboard_env(
+        env_cls_name="Go2HandStandTask",
+        cfg_cls_name="Go2HandStandCfg",
+        module="unilab.envs.locomotion.go2.handstand",
+        obs_contains_command=True,
+    )
+    manip_loco_env = _keyboard_env(
+        env_cls_name="Go2ArmManipLocoEnv",
+        cfg_cls_name="Go2ArmManipLocoCfg",
+        module="unilab.envs.locomotion.go2_arm.manip_loco",
+        obs_contains_command=True,
+    )
+    missing_obs_command_env = _keyboard_env(
+        env_cls_name="Go2WalkTask",
+        cfg_cls_name="Go2JoystickCfg",
+        module="unilab.envs.locomotion.go2.joystick",
+        obs_contains_command=False,
+    )
+
+    assert mod._should_render_velocity_arrows(joystick_env) is True
+    assert mod._should_render_velocity_arrows(handstand_env) is False
+    assert mod._should_render_velocity_arrows(manip_loco_env) is False
+    assert mod._should_render_velocity_arrows(missing_obs_command_env) is False
+
+
 def test_handle_command_key_maps_drive_style_keys():
     mod = _load_script("play_interactive")
     commander = mod.KeyboardCommander.from_vel_limit([[-0.6, -0.4, -0.8], [1.0, 0.4, 0.8]])
@@ -192,20 +248,37 @@ def test_handle_command_key_maps_drive_style_keys():
     assert commander.command.tolist() == [0.0, 0.0, 0.0]
 
 
-def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Path, monkeypatch):
+def test_play_interactive_viewer_model_uses_shared_render_playback_resolver(
+    tmp_path: Path, monkeypatch
+):
     mod = _load_script("play_interactive")
     visual_xml = tmp_path / "scene.xml"
     visual_xml.write_text("<mujoco/>", encoding="utf-8")
 
     import mujoco
 
-    loaded: list[str] = []
+    loaded_binary: list[str] = []
+    resolved: dict[str, object] = {}
+    viewer_model = object()
 
-    def fake_from_xml_path(path: str):
-        loaded.append(path)
-        return object()
+    def fake_from_binary_path(path: str):
+        loaded_binary.append(path)
+        return viewer_model
 
-    monkeypatch.setattr(mujoco.MjModel, "from_xml_path", fake_from_xml_path)
+    def fake_resolve_render_play_model_files(env, *, num_envs: int, tmp_dir: str | Path):
+        resolved["env"] = env
+        resolved["num_envs"] = num_envs
+        resolved["tmp_dir"] = tmp_dir
+        output_path = Path(tmp_dir) / "model_0.mjb"
+        output_path.write_bytes(b"fake-mjb")
+        return str(output_path)
+
+    monkeypatch.setattr(mujoco.MjModel, "from_binary_path", fake_from_binary_path)
+    monkeypatch.setattr(
+        mod,
+        "resolve_render_play_model_files",
+        fake_resolve_render_play_model_files,
+    )
 
     class FakeBackend:
         scene_visual_model_file = str(visual_xml)
@@ -213,10 +286,12 @@ def test_play_interactive_viewer_model_prefers_backend_visual_scene(tmp_path: Pa
     class FakeEnv:
         _backend = FakeBackend()
 
-        def get_playback_model(self):
-            raise AssertionError("backend visual scene should be preferred")
+    env = FakeEnv()
+    model = mod._load_viewer_model(env, use_env_visual_model=False)
 
-    model = mod._load_viewer_model(FakeEnv(), use_env_visual_model=False)
-
-    assert model is not None
-    assert loaded == [str(visual_xml)]
+    assert model is viewer_model
+    assert len(loaded_binary) == 1
+    assert Path(loaded_binary[0]).name == "model_0.mjb"
+    assert resolved["env"] is env
+    assert resolved["num_envs"] == 1
+    assert Path(resolved["tmp_dir"]).name.startswith("unilab-interactive-viewer-")

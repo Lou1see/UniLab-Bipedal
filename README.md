@@ -11,6 +11,8 @@ A Heterogeneous Architecture for Robot RL Beyond GPU-Dominant Paradigms
   <a href="https://arxiv.org/abs/2605.30313"><img src="https://img.shields.io/badge/arxiv-2605.30313-red" alt="arXiv"></a>
   <a href="https://unilabsim.github.io/paper/"><img src="https://img.shields.io/badge/paper-UniLab-orange" alt="Paper"></a>
   <a href="https://unilabsim.github.io/UniLab-doc/"><img src="https://img.shields.io/badge/docs-UniLab--doc-blue" alt="Documentation"></a>
+  <a href="https://unilabsim.github.io/paper/paper2gal.html"><img src="https://img.shields.io/badge/Galgame-play-ff69b4" alt="Galgame"></a>
+  <a href="https://discord.gg/EPCuguRmGX"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 License"></a>
 </p>
 
@@ -39,6 +41,43 @@ Start with the `Quick Demo` below to run the primary training command. The recom
 - **Cross-platform setup paths:** The repository tracks Linux CUDA, Linux ROCm, Linux XPU, and Apple Silicon / macOS setup flows.
 
 ## 🚀 Quick Demo
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/dance.jpg" alt="dance demo" width="100%">
+      <br>
+      <sub><b>dance</b><br>G1 motion tracking</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/wallflip.jpg" alt="wallflip demo" width="100%">
+      <br>
+      <sub><b>wallflip</b><br>G1 wall flip</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/teaser.jpg" alt="teaser demo" width="100%">
+      <br>
+      <sub><b>teaser</b><br>MotrixSim teaser</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/boxtracking.jpg" alt="boxtracking demo" width="100%">
+      <br>
+      <sub><b>boxtracking</b><br>G1 box tracking</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/inhandgrasp.jpg" alt="inhandgrasp demo" width="100%">
+      <br>
+      <sub><b>inhandgrasp</b><br>Sharpa in-hand</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/locomani.jpg" alt="locomani demo" width="100%">
+      <br>
+      <sub><b>locomani</b><br>Go2 loco-manipulation</sub>
+    </td>
+  </tr>
+</table>
 
 ```bash
 # 0. If uv is not installed
@@ -114,10 +153,6 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
 uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```
 
-```bash
-uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
-```
-
 Use `uv run train` for training, `uv run eval` for checkpoint playback, and `uv run demo` for the local demo preset. These commands keep algorithm, task, and backend selection explicit.
 
 More training commands, script-level entrypoints, algorithm matrix, resume flow, and W&B details are in the [Training Guide](https://unilabsim.github.io/UniLab-doc/en/2-user_guide/1-training/0-index.html).
@@ -134,10 +169,24 @@ Use the published [UniLab documentation](https://unilabsim.github.io/UniLab-doc/
 
 ## 💬 Community
 
-| WeChat Group | WeChat Assistant |
+Join our [Discord server](https://discord.gg/EPCuguRmGX) to chat with the community and get help.
+
+| WeChat Group | Author WeChat |
 | :---: | :---: |
-| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab WeChat assistant QR code" width="150"> |
-| Scan to join the UniLab WeChat group. | If the group is full, add the assistant and include `unilab交流` in your message. |
+| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab WeChat group QR code" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab author WeChat QR code" width="150"> |
+| Scan to join the UniLab WeChat group. | If the group is full, add the author and include `unilab交流` in your message. |
+
+## ⭐ Star History
+
+<p align="center">
+  <a href="https://www.star-history.com/unilabsim/UniLab">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" />
+      <img src="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" alt="UniLab Star History Chart" width="70%">
+    </picture>
+  </a>
+</p>
 
 ## 🧾 Citation
 

@@ -368,6 +368,167 @@ def test_hora_distill_task_owner_overrides_root_config_defaults():
     assert cfg.algo.save_interval_steps == 10000000
 
 
+def test_hora_distill_sharpa_appo_student_owner_selects_nodr_demo_profile():
+    mod = _train_hora_distill()
+    cfg = mod._apply_teacher_defaults(_hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"]))
+
+    assert cfg.teacher.algo_family == "appo"
+    assert cfg.teacher.task == "sharpa_inhand/mujoco_hora"
+    assert cfg.training.task_name == "SharpaInhandRotation"
+    assert cfg.training.sim_backend == "mujoco"
+    assert cfg.interactive.action_mode == "policy"
+    assert cfg.interactive.policy_obs_mode == "actor"
+    assert cfg.env.post_step_forward_sensor is True
+    assert cfg.env.domain_rand.scale_list == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    assert cfg.env.domain_rand.randomize_gravity is False
+    assert cfg.env.domain_rand.randomize_gravity_direction is False
+    assert cfg.env.domain_rand.randomize_pd_gains is False
+    assert cfg.env.domain_rand.randomize_friction is False
+    assert cfg.env.domain_rand.randomize_com is False
+    assert cfg.env.domain_rand.randomize_mass is False
+    assert cfg.env.domain_rand.force_scale == pytest.approx(0.0)
+    assert cfg.env.domain_rand.random_force_prob_scalar == pytest.approx(0.0)
+    assert cfg.env.domain_rand.joint_noise_scale == pytest.approx(0.0)
+    assert cfg.env.domain_rand.contact_latency == pytest.approx(0.0)
+    assert cfg.env.domain_rand.contact_sensor_noise == pytest.approx(0.0)
+    assert cfg.algo.model.priv_info_embed_dim == 9
+    assert cfg.algo.model.priv_mlp_hidden_dims == [256, 128, 9]
+
+
+def test_hora_distill_runtime_checkpoint_records_model_only():
+    mod = _train_hora_distill()
+    cfg = OmegaConf.create(
+        {
+            "training": {
+                "task_name": "OwnerTask",
+                "sim_backend": "mujoco",
+                "cam_distance": 1.5,
+            },
+            "env": {
+                "post_step_forward_sensor": True,
+                "domain_rand": {"force_scale": 1.2},
+            },
+            "reward": {"scales": {"rotate": 2.5}},
+            "algo": {"model": {"hidden_dims": [512, 256, 128]}},
+        }
+    )
+
+    runtime = OmegaConf.to_container(mod._resolved_distill_runtime_cfg(cfg), resolve=True)
+
+    assert runtime == {"algo": {"model": {"hidden_dims": [512, 256, 128]}}}
+
+
+def test_hora_distill_checkpoint_runtime_only_restores_model_structure():
+    mod = _train_hora_distill()
+    cfg = _hora_distill_cfg(["task=sharpa_inhand/mujoco_nodr"])
+    checkpoint = {
+        "distill_runtime_cfg": {
+            "training": {
+                "task_name": "CheckpointTask",
+                "sim_backend": "motrix",
+                "render_spacing": 99.0,
+            },
+            "reward": {"scales": {"rotate": 999.0}},
+            "env": {
+                "post_step_forward_sensor": False,
+                "domain_rand": {
+                    "scale_list": [9.9],
+                    "randomize_mass": True,
+                    "force_scale": 99.0,
+                },
+            },
+            "algo": {
+                "model": {
+                    "hidden_dims": [32, 16],
+                    "priv_info_embed_dim": 7,
+                    "priv_mlp_hidden_dims": [11, 7],
+                }
+            },
+        }
+    }
+
+    restored = mod._cfg_with_checkpoint_runtime(cfg, checkpoint)
+
+    assert restored.training.task_name == "SharpaInhandRotation"
+    assert restored.training.sim_backend == "mujoco"
+    assert restored.training.render_spacing == pytest.approx(0.5)
+    assert restored.reward.scales.rotate != pytest.approx(999.0)
+    assert restored.env.post_step_forward_sensor is True
+    assert restored.env.domain_rand.scale_list == [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5]
+    assert restored.env.domain_rand.randomize_mass is False
+    assert restored.env.domain_rand.force_scale == pytest.approx(0.0)
+    assert restored.algo.model.hidden_dims == [32, 16]
+    assert restored.algo.model.priv_info_embed_dim == 7
+    assert restored.algo.model.priv_mlp_hidden_dims == [11, 7]
+
+
+@pytest.mark.parametrize(
+    ("teacher_algo_family", "checkpoint_model"),
+    [
+        ("ppo", {"hidden_dims": [512, 256, 128], "activation": "elu"}),
+        ("appo", {"hidden_dims": [512, 256, 128], "activation": "elu"}),
+        (
+            "sac",
+            {
+                "teacher_arch": "hora_sac",
+                "actor_hidden_dim": 512,
+                "use_layer_norm": True,
+            },
+        ),
+    ],
+)
+def test_hora_distill_checkpoint_runtime_only_overrides_model_side(
+    monkeypatch: pytest.MonkeyPatch,
+    teacher_algo_family: str,
+    checkpoint_model: dict[str, Any],
+):
+    mod = _train_hora_distill()
+    owner_cfg = OmegaConf.create(
+        {
+            "teacher": {"algo_family": teacher_algo_family},
+            "training": {
+                "task_name": "OwnerTask",
+                "sim_backend": "mujoco",
+                "cam_distance": 1.5,
+            },
+            "env": {
+                "post_step_forward_sensor": False,
+                "domain_rand": {"force_scale": 1.2, "randomize_mass": False},
+            },
+            "reward": {"scales": {"rotate": 2.5}},
+            "algo": {"model": {"owner_model": True}},
+        }
+    )
+    checkpoint = {
+        "teacher_algo_family": teacher_algo_family,
+        "distill_runtime_cfg": {
+            "training": {
+                "task_name": "CheckpointTask",
+                "sim_backend": "mujoco",
+                "cam_distance": 9.0,
+            },
+            "env": {
+                "post_step_forward_sensor": True,
+                "domain_rand": {"force_scale": 9.0, "randomize_mass": True},
+            },
+            "reward": {"scales": {"rotate": 99.0}},
+            "algo": {"model": checkpoint_model},
+        },
+    }
+
+    monkeypatch.setattr(mod, "_apply_teacher_defaults", lambda cfg: owner_cfg)
+
+    effective_cfg = mod._cfg_with_checkpoint_runtime(OmegaConf.create({}), checkpoint)
+
+    assert effective_cfg.training.task_name == "OwnerTask"
+    assert effective_cfg.training.cam_distance == pytest.approx(1.5)
+    assert effective_cfg.env.post_step_forward_sensor is False
+    assert effective_cfg.env.domain_rand.force_scale == pytest.approx(1.2)
+    assert effective_cfg.env.domain_rand.randomize_mass is False
+    assert effective_cfg.reward.scales.rotate == pytest.approx(2.5)
+    assert OmegaConf.to_container(effective_cfg.algo.model, resolve=True) == checkpoint_model
+
+
 def test_hora_distill_script_delegates_teacher_owner_resolution():
     source = (_SCRIPTS_DIR / "train_hora_distill.py").read_text(encoding="utf-8")
 
@@ -585,11 +746,12 @@ def test_build_ppo_env_cfg_override_carries_post_step_forward_sensor_override(
     monkeypatch: pytest.MonkeyPatch,
 ):
     mod = _train_rsl_rl(monkeypatch)
-    cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", "env.post_step_forward_sensor=true"])
+    for value in (True, False):
+        cfg = _ppo_cfg(["task=g1_walk_flat/mujoco", f"env.post_step_forward_sensor={value}"])
 
-    env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
+        env_cfg_override = mod.build_ppo_env_cfg_override(cfg)
 
-    assert env_cfg_override["post_step_forward_sensor"] is True
+        assert env_cfg_override["post_step_forward_sensor"] is value
 
 
 def test_offpolicy_g1_walk_flat_motrix_env_cfg_override_has_domain_rand():
@@ -637,7 +799,7 @@ def test_build_ppo_env_cfg_override_allegro_mujoco(
     assert env_cfg_override["reward_config"]["reset_z_threshold"] == pytest.approx(0.125)
     assert env_cfg_override["gen_grasp"] is False
     assert env_cfg_override["max_episode_seconds"] == pytest.approx(20.0)
-    assert env_cfg_override["grasp_cache_path"] == "cache/allegro_grasp_50k.npy"
+    assert env_cfg_override["grasp_cache_path"] == "caches/allegro_grasp_50k.npy"
     assert env_cfg_override["domain_rand"]["randomize_base_mass"] is False
     assert env_cfg_override["domain_rand"]["random_com"] is False
     assert env_cfg_override["domain_rand"]["randomize_gravity"] is False
@@ -1325,6 +1487,28 @@ def test_offpolicy_play_actor_spec_uses_hora_sac_runtime():
 
     assert actor_algo_type == "hora_sac"
     assert actor_kwargs["priv_info_dim"] == 2
+
+
+def test_offpolicy_play_actor_spec_keeps_standard_sac_and_flashsac():
+    mod = _offpolicy()
+    sac_cfg = _offpolicy_cfg(["algo=sac", "task=sac/g1_walk_flat/mujoco"])
+    flashsac_cfg = _offpolicy_cfg(["algo=flashsac", "task=flashsac/g1_walk_flat/mujoco"])
+
+    sac_algo_type, sac_kwargs = mod.resolve_play_actor_spec(
+        "sac",
+        sac_cfg,
+        obs_dim=98,
+        critic_obs_dim=101,
+    )
+    flash_algo_type, flash_kwargs = mod.resolve_play_actor_spec(
+        "flashsac",
+        flashsac_cfg,
+        obs_dim=98,
+        critic_obs_dim=101,
+    )
+
+    assert (sac_algo_type, sac_kwargs) == ("sac", {})
+    assert (flash_algo_type, flash_kwargs) == ("flashsac", {})
 
 
 def test_play_offpolicy_can_skip_onnx_export_and_still_record_video(
@@ -2177,6 +2361,7 @@ def test_offpolicy_rejects_algo_task_owner_mismatch(algo: str, task: str):
 
 def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     """Verify _get_log_root uses algo.algo_log_name (issue #168)."""
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg()
 
@@ -2190,6 +2375,7 @@ def test_train_rsl_rl_get_log_root_uses_algo_log_name(monkeypatch: pytest.Monkey
 def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_context(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
@@ -2222,6 +2408,7 @@ def test_train_rsl_rl_play_missing_checkpoint_skips_env_creation_and_prints_cont
 def test_train_rsl_rl_play_reports_missing_requested_checkpoint_in_resolved_run(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
 ):
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_rsl_rl(monkeypatch)
     cfg = _ppo_cfg(["task=go1_joystick_flat/mujoco", "training.play_only=true"])
     cfg.algo.algo_log_name = "custom_ppo"
@@ -2434,8 +2621,9 @@ def test_train_rsl_rl_record_play_uses_backend_plan(
     assert captured["output_video"] == run_dir / "play_video.mp4"
 
 
-def test_train_appo_get_log_root_uses_algo_log_name():
+def test_train_appo_get_log_root_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):
     """Verify APPO _get_log_root uses algo.algo_log_name (issue #168)."""
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _train_appo()
     cfg = _appo_cfg()
 
@@ -2445,8 +2633,11 @@ def test_train_appo_get_log_root_uses_algo_log_name():
     assert "logs/test_appo" in log_root
 
 
-def test_play_resolve_checkpoint_uses_algo_log_name(tmp_path):
+def test_play_resolve_checkpoint_uses_algo_log_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
     """Verify play_interactive.resolve_checkpoint uses algo_log_name (issue #168)."""
+    monkeypatch.delenv("UNILAB_TEST_LOG_ROOT", raising=False)
     mod = _play_interactive()
 
     # Create test directory structure with custom algo_log_name
@@ -2470,6 +2661,110 @@ def test_ppo_interactive_config_includes_playback_controls():
 
     assert cfg.interactive.speed == pytest.approx(1.0)
     assert cfg.interactive.start_paused is False
+
+
+def test_play_interactive_respects_training_device_override():
+    mod = _play_interactive()
+    cfg = OmegaConf.create({"training": {"device": "cpu"}})
+
+    assert mod._select_playback_device(cfg) == "cpu"
+
+
+def test_play_interactive_parses_explicit_cli():
+    mod = _play_interactive()
+
+    parsed = mod._parse_interactive_cli(
+        ["--algo", "hora_distill", "--task", "sharpa_inhand", "--sim", "mujoco_nodr"]
+    )
+
+    assert parsed.algo == "hora_distill"
+    assert parsed.task == "sharpa_inhand"
+    assert parsed.sim == "mujoco_nodr"
+    assert parsed.overrides == ["task=sharpa_inhand/mujoco_nodr"]
+
+
+@pytest.mark.parametrize("algo", ["appo", "sac", "hora_distill"])
+def test_play_interactive_parses_feature_algo_flags(algo: str):
+    mod = _play_interactive()
+
+    parsed = mod._parse_interactive_cli(
+        [f"--algo={algo}", "--task", "sharpa_inhand", "--sim", "mujoco_hora"]
+    )
+
+    assert parsed.algo == algo
+    assert parsed.overrides == ["task=sharpa_inhand/mujoco_hora"]
+
+
+def test_play_interactive_cli_respects_owner_action_mode_and_user_override():
+    mod = _play_interactive()
+
+    default_parsed = mod._parse_interactive_cli(
+        ["--algo", "ppo", "--task", "go2_joystick_rough", "--sim", "mujoco"]
+    )
+    default_cfg = mod._compose_interactive_config(default_parsed.algo, default_parsed.overrides)
+
+    assert default_cfg.interactive.action_mode == "policy"
+
+    parsed = mod._parse_interactive_cli(
+        [
+            "--algo",
+            "ppo",
+            "--task",
+            "go2_joystick_rough",
+            "--sim",
+            "mujoco",
+            "interactive.action_mode=random",
+        ]
+    )
+    cfg = mod._compose_interactive_config(parsed.algo, parsed.overrides)
+
+    assert parsed.overrides == [
+        "task=go2_joystick_rough/mujoco",
+        "interactive.action_mode=random",
+    ]
+    assert cfg.interactive.action_mode == "random"
+
+
+def test_play_interactive_rejects_unknown_algo_flag():
+    mod = _play_interactive()
+
+    with pytest.raises(SystemExit):
+        mod._parse_interactive_cli(
+            ["--algo=unknown", "--task", "go1_joystick_flat", "--sim", "mujoco"]
+        )
+
+
+def test_play_interactive_dynamic_compose_supports_algo_roots():
+    mod = _play_interactive()
+
+    ppo_cfg = mod._compose_interactive_config("ppo", ["task=go1_joystick_flat/mujoco"])
+    appo_cfg = mod._compose_interactive_config("appo", ["task=sharpa_inhand/mujoco_hora"])
+    sac_cfg = mod._compose_interactive_config("sac", ["task=sharpa_inhand/mujoco_hora"])
+    distill_cfg = mod._compose_interactive_config("hora_distill", ["task=sharpa_inhand/mujoco"])
+
+    assert ppo_cfg.algo.algo == "ppo"
+    assert appo_cfg.algo.runtime_impl == "hora_appo"
+    assert appo_cfg.interactive.action_mode == "policy"
+    assert sac_cfg.algo.algo == "sac"
+    assert sac_cfg.algo.runtime_impl == "hora_sac"
+    assert sac_cfg.interactive.policy_obs_mode == "actor"
+    assert distill_cfg.algo.algo_log_name == "hora_distill"
+    assert distill_cfg.interactive.action_mode == "policy"
+
+
+def test_play_interactive_sac_task_shorthand_rewrites_to_owner_group():
+    mod = _play_interactive()
+
+    overrides = mod._normalize_interactive_overrides(
+        "sac",
+        ["task=sharpa_inhand/mujoco_hora", "algo.load_run=my_run"],
+    )
+
+    assert overrides == [
+        "algo=sac",
+        "task=sac/sharpa_inhand/mujoco_hora",
+        "algo.load_run=my_run",
+    ]
 
 
 def test_play_interactive_runner_log_dir_uses_algo_log_name(monkeypatch: pytest.MonkeyPatch):

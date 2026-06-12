@@ -11,6 +11,8 @@
   <a href="https://arxiv.org/abs/2605.30313"><img src="https://img.shields.io/badge/arxiv-2605.30313-red" alt="arXiv"></a>
   <a href="https://unilabsim.github.io/paper/"><img src="https://img.shields.io/badge/paper-UniLab-orange" alt="Paper"></a>
   <a href="https://unilabsim.github.io/UniLab-doc/"><img src="https://img.shields.io/badge/docs-UniLab--doc-blue" alt="Documentation"></a>
+  <a href="https://unilabsim.github.io/paper/paper2gal.html"><img src="https://img.shields.io/badge/Galgame-play-ff69b4" alt="Galgame"></a>
+  <a href="https://discord.gg/EPCuguRmGX"><img src="https://img.shields.io/badge/Discord-join-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue" alt="Apache-2.0 License"></a>
 </p>
 
@@ -39,6 +41,43 @@
 - **跨平台安装路径：** 仓库覆盖 Linux CUDA、Linux ROCm、Linux XPU，以及 Apple Silicon / macOS 的安装流程。
 
 ## 🚀 快速演示
+
+<table>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/dance.jpg" alt="dance demo" width="100%">
+      <br>
+      <sub><b>dance</b><br>G1 动作跟踪</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/wallflip.jpg" alt="wallflip demo" width="100%">
+      <br>
+      <sub><b>wallflip</b><br>G1 空翻</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/teaser.jpg" alt="teaser demo" width="100%">
+      <br>
+      <sub><b>teaser</b><br>MotrixSim 预告图</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/boxtracking.jpg" alt="boxtracking demo" width="100%">
+      <br>
+      <sub><b>boxtracking</b><br>G1 箱体跟踪</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/inhandgrasp.jpg" alt="inhandgrasp demo" width="100%">
+      <br>
+      <sub><b>inhandgrasp</b><br>Sharpa 手内抓取</sub>
+    </td>
+    <td align="center" width="33%">
+      <img src="docs/sphinx/source/_static/demos/locomani.jpg" alt="locomani demo" width="100%">
+      <br>
+      <sub><b>locomani</b><br>Go2 移动操作</sub>
+    </td>
+  </tr>
+</table>
 
 ```bash
 # 0. 如果还没有安装 uv
@@ -116,10 +155,6 @@ uv run train --algo ppo --task go2_arm_manip_loco --sim motrix
 uv run eval --algo ppo --task go2_arm_manip_loco --sim motrix --load-run -1
 ```
 
-```bash
-uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
-```
-
 使用 `uv run train` 进行训练，使用 `uv run eval` 进行检查点回放，`uv run demo` 用于本地 demo 预设。这些命令可以明确指定算法、任务和后端。
 
 更多训练命令、脚本级入口、算法矩阵、续训流程以及 W&B 细节请参阅 [训练指南](https://unilabsim.github.io/UniLab-doc/zh_CN/2-user_guide/1-training/0-index.html)。
@@ -136,10 +171,24 @@ uv run train --algo ppo --task sharpa_inhand --sim mujoco --profile hora
 
 ## 💬 社群交流
 
-| 微信群 | 小助手微信 |
+海外用户可加入我们的 [Discord 服务器](https://discord.gg/EPCuguRmGX) 交流与获取帮助。
+
+| 微信群 | 作者微信 |
 | :---: | :---: |
-| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 小助手微信二维码" width="150"> |
-| 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加小助手微信，并备注 `unilab交流`。 |
+| <img src="docs/sphinx/source/_static/assets/unilab-wechat-group.jpg" alt="UniLab 微信群二维码" width="220"> | <img src="docs/sphinx/source/_static/assets/unilab-wechat-assistant.jpg" alt="UniLab 作者微信二维码" width="150"> |
+| 扫码加入 UniLab 微信群。 | 如果微信群已满，请添加作者微信，并备注`unilab交流`。 |
+
+## ⭐ Star 趋势
+
+<p align="center">
+  <a href="https://www.star-history.com/unilabsim/UniLab">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&theme=dark&legend=top-left" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" />
+      <img src="https://api.star-history.com/chart?repos=unilabsim/UniLab&type=date&legend=top-left" alt="UniLab Star 趋势图" width="70%">
+    </picture>
+  </a>
+</p>
 
 ## 🧾 引用
 
