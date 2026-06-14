@@ -500,6 +500,30 @@ class FastSACLearner:
         if self.use_compile:
             self._compile_training_methods()
 
+    def dump_graph_to_tb(self, tb_log_dir: str) -> None:
+        """Write network computation graphs to TensorBoard subdirectories.
+
+        Uses ``torch.jit.trace`` under the hood. Called once at training start.
+        Each network gets its own subdirectory under ``tb_log_dir`` so that
+        TensorBoard's GRAPHS tab can display them via the Runs dropdown.
+        """
+        from torch.utils.tensorboard import SummaryWriter
+
+        device = self.device
+        actor_obs = torch.randn(2, self.actor.obs_dim, device=device)
+        critic_obs = torch.randn(2, self.critic_obs_dim, device=device)
+        actions = torch.randn(2, self.actor.action_dim, device=device)
+
+        graphs: list[tuple[str, nn.Module, object]] = [
+            ("graph_actor",    self.actor, actor_obs),
+            ("graph_critic",   self.qnet,  (critic_obs, actions)),
+        ]
+
+        for tag, model, inp in graphs:
+            w = SummaryWriter(log_dir=f"{tb_log_dir}/{tag}")
+            w.add_graph(model, inp)
+            w.close()
+
     @staticmethod
     def _resolve_amp_dtype(amp_dtype: str, device_type: str) -> torch.dtype:
         normalized = amp_dtype.lower()

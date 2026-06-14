@@ -247,6 +247,11 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
         logger.start()
 
+        # Dump network computation graphs to TensorBoard (duck-typing: any learner
+        # that provides ``dump_graph_to_tb`` will have its graphs recorded).
+        if hasattr(self.learner, "dump_graph_to_tb") and logger._tb_writer and log_dir:
+            self.learner.dump_graph_to_tb(log_dir)
+
         reward_history: deque = deque(maxlen=100)
         latest_reward_components: dict[str, float] = {}
         last_buf_log = 0
