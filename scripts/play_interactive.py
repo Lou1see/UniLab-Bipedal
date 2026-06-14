@@ -843,29 +843,18 @@ def _load_viewer_model(env: Any, *, use_env_visual_model: bool):
 
 
 class TorqueMonitor:
-    """Real-time joint torque overlay figure in the MuJoCo viewer.
+    """Real-time joint torque sub-figures overlaid on the MuJoCo viewer.
 
-    Press T to toggle the torque monitor on/off. Shows live torque curves
-    for selected leg + torso joints.
+    Press T to toggle on/off, 1/2/3 to switch page (3 sub-figures per page).
     """
 
-    _HISTORY_LEN = 300  # steps of history to keep
-    _RENDER_EVERY_N = 8  # only update figure every N frames
-    _LINE_COLORS: list[list[float]] = [
-        [1.0, 0.3, 0.3],  # red
-        [0.3, 1.0, 0.3],  # green
-        [0.3, 0.3, 1.0],  # blue
-        [1.0, 0.7, 0.0],  # orange
-        [1.0, 0.0, 1.0],  # magenta
-        [0.0, 0.8, 0.8],  # cyan
-        [1.0, 1.0, 0.3],  # yellow
-    ]
+    _HISTORY_LEN = 300
+    _RENDER_EVERY_N = 6
+    _SUBS_PER_PAGE = 3
+    _FIG_W = 420
+    _FIG_H = 115
 
-    def __init__(
-        self,
-        torque_addrs: list[tuple[str, int]],
-        buffer_height: int = 300,
-    ) -> None:
+    def __init__(self, torque_addrs: list[tuple[str, int]]) -> None:
         import mujoco  # noqa: F811
         from collections import deque
 
@@ -873,37 +862,33 @@ class TorqueMonitor:
         self._addrs = torque_addrs  # [(label, adr), ...]
         self._ns = len(torque_addrs)
         self._buf = [deque(maxlen=self._HISTORY_LEN) for _ in range(self._ns)]
-        self._fig = mujoco.MjvFigure()
-        mujoco.mjv_defaultFigure(self._fig)
+        self._figs: list[Any] = []
         self._step_cnt = 0
         self._render_cnt = 0
-        self._buffer_height = buffer_height
+        self._page = 0  # 0-based page index
 
-        if self._ns == 0:
-            return
-
-        # Configure figure
-        self._fig.flg_extend = 1
-        self._fig.flg_barplot = 0
-        self._fig.gridsize[0] = 4
-        self._fig.gridsize[1] = 3
-        self._fig.range[0][0] = 0
-        self._fig.range[0][1] = self._HISTORY_LEN - 1
-        self._fig.range[1][0] = -30
-        self._fig.range[1][1] = 30
-        self._fig.title = "Joint Torques (N·m)"
-        self._fig.xlabel = ""
-        self._fig.figurergba[0] = 0.05
-        self._fig.figurergba[1] = 0.05
-        self._fig.figurergba[2] = 0.1
-        self._fig.figurergba[3] = 0.85
+        self._num_pages = max(1, (self._ns + self._SUBS_PER_PAGE - 1) // self._SUBS_PER_PAGE)
 
         for i, (label, _) in enumerate(self._addrs):
-            c = self._LINE_COLORS[i % len(self._LINE_COLORS)]
-            self._fig.linergb[i][0] = c[0]
-            self._fig.linergb[i][1] = c[1]
-            self._fig.linergb[i][2] = c[2]
-            self._fig.linename[i] = label[:20].encode()
+            fig = mujoco.MjvFigure()
+            mujoco.mjv_defaultFigure(fig)
+            fig.flg_extend = 1
+            fig.flg_barplot = 0
+            fig.gridsize[0] = 3
+            fig.gridsize[1] = 3
+            fig.range[0][0] = 0
+            fig.range[0][1] = float(self._HISTORY_LEN)
+            fig.range[1][0] = -30
+            fig.range[1][1] = 30
+            fig.title = label[:20].encode()
+            fig.figurergba[0] = 0.05
+            fig.figurergba[1] = 0.05
+            fig.figurergba[2] = 0.1
+            fig.figurergba[3] = 0.85
+            fig.linergb[0][0] = 1.0
+            fig.linergb[0][1] = 0.85
+            fig.linergb[0][2] = 0.3
+            self._figs.append(fig)
 
     @property
     def active(self) -> bool:
@@ -911,58 +896,68 @@ class TorqueMonitor:
 
     def toggle(self) -> bool:
         self._active = not self._active
-        status = "ON" if self._active else "OFF"
-        print(f"[play_interactive] Torque monitor {status} (T)")
+        print(f"[play_interactive] Torque monitor {'ON' if self._active else 'OFF'} (T)")
         return self._active
 
+    def next_page(self) -> None:
+        self._page = (self._page + 1) % self._num_pages
+        print(f"[play_interactive] Torque page {self._page + 1}/{self._num_pages}")
+
     def update(self, viz_data: Any, step_passed: bool) -> None:
-        """Call every frame. Records torque data into a fixed-size deque."""
         if not step_passed:
             return
         for i, (_, adr) in enumerate(self._addrs):
-            val = float(viz_data.sensordata[adr]) if adr >= 0 else 0.0
-            self._buf[i].append(val)
+            self._buf[i].append(float(viz_data.sensordata[adr]) if adr >= 0 else 0.0)
         self._step_cnt += 1
 
     def render(self, viewer: Any) -> None:
-        """Render torque figure onto the viewer (throttled to ~every N frames)."""
         import mujoco
 
         if not self._active or self._ns == 0:
+            # clear figures once when monitor is off
+            if getattr(self, "_was_active", False):
+                viewer.clear_figures()
+                self._was_active = False
             return
 
+        self._was_active = True
         self._render_cnt += 1
         if self._render_cnt % self._RENDER_EVERY_N != 0:
             return
 
-        # Update figure data from deque
-        for i in range(self._ns):
-            data = list(self._buf[i])
+        start = self._page * self._SUBS_PER_PAGE
+        end = min(start + self._SUBS_PER_PAGE, self._ns)
+        offset = max(0, self._step_cnt - self._HISTORY_LEN)
+
+        vps: list[tuple[Any, Any]] = []
+        for slot, global_idx in enumerate(range(start, end)):
+            fig = self._figs[global_idx]
+            data = list(self._buf[global_idx])
             n = len(data)
-            self._fig.linepnt[i] = n
-            offset = max(0, self._step_cnt - self._HISTORY_LEN)
+            fig.linepnt[0] = n
             for j in range(n):
-                self._fig.linedata[i][2 * j] = float(offset + j)
-                self._fig.linedata[i][2 * j + 1] = data[j]
+                fig.linedata[0][2 * j] = float(offset + j)
+                fig.linedata[0][2 * j + 1] = data[j]
+            # sliding X window so data fills the whole figure
+            fig.range[0][0] = float(offset)
+            fig.range[0][1] = float(offset + self._HISTORY_LEN)
+            # auto-scale Y per sub-figure
+            if data:
+                y_max = max(abs(v) for v in data[-100:]) * 1.2
+                y_max = max(y_max, 1.0)
+                fig.range[1][0] = -y_max
+                fig.range[1][1] = y_max
 
-        # Auto-scale Y range (based on last 100 points)
-        all_vals: list[float] = []
-        for buf in self._buf:
-            items = list(buf)
-            all_vals.extend(abs(v) for v in items[-100:])
-        if all_vals:
-            y_max = max(all_vals) * 1.2
-            y_max = max(y_max, 1.0)
-            self._fig.range[1][0] = -y_max
-            self._fig.range[1][1] = y_max
+            y_bottom = viewer.viewport.bottom + (self._SUBS_PER_PAGE - 1 - slot) * self._FIG_H
+            vp = mujoco.MjrRect(
+                viewer.viewport.width - self._FIG_W,
+                y_bottom,
+                self._FIG_W,
+                self._FIG_H,
+            )
+            vps.append((vp, fig))
 
-        viewport = mujoco.MjrRect(
-            viewer.viewport.width - 420,
-            viewer.viewport.bottom,
-            420,
-            self._buffer_height,
-        )
-        viewer.set_figures([(viewport, self._fig)])
+        viewer.set_figures(vps)
 
 
 def _build_playback_config(args, *, num_envs: int = 1) -> RslRlPlaybackConfig:
@@ -1346,13 +1341,21 @@ def play_interactive(args, cfg: DictConfig | None = None, *, algo: str | None = 
             print("[play_interactive] reset (backspace)")
         elif keycode in (ord("T"), ord("t")):
             torque_monitor.toggle()
-            if not torque_monitor.active:
-                viewer.clear_figures()
+        elif keycode in (ord("1"), ord("!")):
+            torque_monitor._page = 0
+            print(f"[play_interactive] Torque page 1/{torque_monitor._num_pages}")
+        elif keycode in (ord("2"), ord("@")):
+            torque_monitor._page = min(1, torque_monitor._num_pages - 1)
+            print(f"[play_interactive] Torque page {torque_monitor._page+1}/{torque_monitor._num_pages}")
+        elif keycode in (ord("3"), ord("#")):
+            torque_monitor._page = min(2, torque_monitor._num_pages - 1)
+            print(f"[play_interactive] Torque page {torque_monitor._page+1}/{torque_monitor._num_pages}")
         elif commander is not None:
             _handle_command_key(commander, keycode)
 
     print("[play_interactive] Opening viewer — close the window or press Esc to quit.")
     print("[play_interactive] Controls: Space=pause/resume, N=single-step, +/-=speed, T=torque")
+    print("[play_interactive] Torque pages: 1/2/3, 3 joints per page")
     if commander is not None:
         _print_keyboard_legend(args)
 
