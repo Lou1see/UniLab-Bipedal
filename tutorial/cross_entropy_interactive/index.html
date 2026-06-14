@@ -1,0 +1,677 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cross Entropy Geometry</title>
+  <style>
+    :root {
+      --bg: #f7f4ee;
+      --ink: #1f2933;
+      --muted: #667085;
+      --grid: #d7d1c5;
+      --target: #24935d;
+      --current: #f07a20;
+      --surprise: #bd3c37;
+      --projection: #2f65a7;
+      --panel: #ffffff;
+      --line: #d0c7b8;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      display: grid;
+      grid-template-columns: minmax(620px, 1.16fr) minmax(440px, 0.84fr);
+      gap: 18px;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: 0 8px 24px rgba(31, 41, 51, 0.08);
+      overflow: hidden;
+    }
+
+    .plot-panel {
+      display: flex;
+      min-height: 690px;
+    }
+
+    .side {
+      width: 220px;
+      border-right: 1px solid var(--line);
+      padding: 16px;
+      background: #fbfaf7;
+    }
+
+    .side h1 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.2;
+    }
+
+    .side p {
+      margin: 0 0 14px;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+
+    .legend {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+      font-size: 13px;
+    }
+
+    .legend-row {
+      display: grid;
+      grid-template-columns: 20px 1fr;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .swatch {
+      width: 18px;
+      height: 4px;
+      border-radius: 999px;
+      background: var(--ink);
+    }
+
+    .swatch.target {
+      background: var(--target);
+    }
+
+    .swatch.current {
+      background: var(--current);
+    }
+
+    .swatch.surprise {
+      background: var(--surprise);
+      border-top: 2px dashed var(--surprise);
+      background: transparent;
+    }
+
+    .swatch.projection {
+      background: var(--projection);
+    }
+
+    .readouts {
+      display: grid;
+      gap: 9px;
+      margin-top: 18px;
+    }
+
+    .readout {
+      border: 1px solid #e2ddd4;
+      border-radius: 8px;
+      padding: 10px;
+      background: white;
+    }
+
+    .readout .label {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 3px;
+    }
+
+    .readout .value {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 15px;
+      white-space: nowrap;
+    }
+
+    .canvas-wrap {
+      flex: 1;
+      position: relative;
+      min-width: 0;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    .right {
+      display: grid;
+      grid-template-rows: 1fr auto;
+      gap: 18px;
+    }
+
+    .right .panel {
+      padding: 16px;
+    }
+
+    .right h2 {
+      margin: 0 0 6px;
+      font-size: 17px;
+    }
+
+    .right p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .metric {
+      border: 1px solid #e2ddd4;
+      border-radius: 8px;
+      padding: 12px;
+      background: #fbfaf7;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 20px;
+    }
+
+    .axis text,
+    .plot-label {
+      fill: var(--muted);
+      font-size: 13px;
+    }
+
+    .drag-point {
+      cursor: grab;
+    }
+
+    .drag-point:active {
+      cursor: grabbing;
+    }
+
+    .hint {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      margin-top: 12px;
+    }
+
+    button {
+      width: 100%;
+      margin-top: 12px;
+      border: 1px solid #c9c1b3;
+      border-radius: 8px;
+      background: #ffffff;
+      color: var(--ink);
+      padding: 9px 10px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: #f2eee7;
+    }
+
+    @media (max-width: 1120px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+
+      .plot-panel {
+        min-height: 640px;
+      }
+    }
+
+    @media (max-width: 760px) {
+      main {
+        padding: 12px;
+      }
+
+      .plot-panel {
+        display: block;
+      }
+
+      .side {
+        width: auto;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .canvas-wrap {
+        height: 560px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="panel plot-panel">
+      <aside class="side">
+        <h1>Cross Entropy Geometry</h1>
+        <p>Drag both probability points along the constraint line. The page redraws surprise, projection, and loss instantly.</p>
+
+        <div class="legend">
+          <div class="legend-row"><span class="swatch target"></span><span>p_target</span></div>
+          <div class="legend-row"><span class="swatch current"></span><span>p_current</span></div>
+          <div class="legend-row"><span class="swatch surprise"></span><span>-log(p_current) vector and curve</span></div>
+          <div class="legend-row"><span class="swatch projection"></span><span>projection onto target ray</span></div>
+        </div>
+
+        <div class="readouts">
+          <div class="readout">
+            <div class="label">p_target</div>
+            <div class="value" id="targetVec"></div>
+          </div>
+          <div class="readout">
+            <div class="label">p_current</div>
+            <div class="value" id="currentVec"></div>
+          </div>
+          <div class="readout">
+            <div class="label">-log(p_current)</div>
+            <div class="value" id="surpriseVec"></div>
+          </div>
+        </div>
+
+        <button id="resetBtn" type="button">Reset</button>
+        <div class="hint">The points are constrained to x + y = 1. The red surprise vector is not a probability vector, so it can leave that line.</div>
+      </aside>
+
+      <div class="canvas-wrap">
+        <svg id="geometrySvg" viewBox="0 0 760 680" role="img" aria-label="Interactive cross entropy geometry plot">
+          <defs>
+            <marker id="arrowTarget" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6 Z" fill="#24935d"></path>
+            </marker>
+            <marker id="arrowCurrent" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6 Z" fill="#f07a20"></path>
+            </marker>
+            <marker id="arrowSurprise" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+              <path d="M0,0 L8,3 L0,6 Z" fill="#bd3c37"></path>
+            </marker>
+          </defs>
+
+          <g id="grid"></g>
+          <g id="geometryLayer"></g>
+        </svg>
+      </div>
+    </section>
+
+    <section class="right">
+      <div class="panel">
+        <h2>Loss Landscape</h2>
+        <p>For the current p_target, this curve scans p_current = [x, 1-x]. The orange point is the current draggable p_current.</p>
+        <svg id="lossSvg" viewBox="0 0 520 360" role="img" aria-label="Cross entropy loss curve">
+          <g id="lossLayer"></g>
+        </svg>
+      </div>
+
+      <div class="panel">
+        <h2>Values</h2>
+        <p>Cross entropy is the target-weighted surprise dot product.</p>
+        <div class="metrics">
+          <div class="metric">Cross entropy<strong id="ceValue"></strong></div>
+          <div class="metric">Entropy minimum<strong id="entropyValue"></strong></div>
+          <div class="metric">Projection length<strong id="projectionLength"></strong></div>
+          <div class="metric">Gradient p_c - p_t<strong id="gradientValue"></strong></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const state = {
+      targetX: 0.2,
+      currentX: 0.8,
+      dragging: null,
+    };
+
+    const eps = 1e-4;
+    const geom = {
+      x0: 86,
+      y0: 594,
+      width: 520,
+      height: 520,
+      max: 2.4,
+    };
+    const lossPlot = {
+      x0: 52,
+      y0: 300,
+      width: 420,
+      height: 230,
+      maxY: 3.2,
+    };
+
+    const $ = (id) => document.getElementById(id);
+
+    function clamp(value, min, max) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function probFromX(x) {
+      const px = clamp(x, eps, 1 - eps);
+      return [px, 1 - px];
+    }
+
+    function surprise(p) {
+      return [-Math.log(p[0]), -Math.log(p[1])];
+    }
+
+    function dot(a, b) {
+      return a[0] * b[0] + a[1] * b[1];
+    }
+
+    function norm(a) {
+      return Math.sqrt(dot(a, a));
+    }
+
+    function ce(target, current) {
+      const s = surprise(current);
+      return dot(target, s);
+    }
+
+    function entropy(target) {
+      return ce(target, target);
+    }
+
+    function projectSurprise(target, current) {
+      const s = surprise(current);
+      const scale = dot(target, s) / dot(target, target);
+      const point = [scale * target[0], scale * target[1]];
+      return { surprise: s, point, length: dot(target, s) / norm(target) };
+    }
+
+    function gx(x) {
+      return geom.x0 + (x / geom.max) * geom.width;
+    }
+
+    function gy(y) {
+      return geom.y0 - (y / geom.max) * geom.height;
+    }
+
+    function lx(x) {
+      return lossPlot.x0 + x * lossPlot.width;
+    }
+
+    function ly(y) {
+      return lossPlot.y0 - (y / lossPlot.maxY) * lossPlot.height;
+    }
+
+    function fmt(value) {
+      return value.toFixed(3);
+    }
+
+    function pairText(pair) {
+      return `[${fmt(pair[0])}, ${fmt(pair[1])}]`;
+    }
+
+    function line(x1, y1, x2, y2, attrs = {}) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "line");
+      el.setAttribute("x1", x1);
+      el.setAttribute("y1", y1);
+      el.setAttribute("x2", x2);
+      el.setAttribute("y2", y2);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    function circle(cx, cy, r, attrs = {}) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      el.setAttribute("cx", cx);
+      el.setAttribute("cy", cy);
+      el.setAttribute("r", r);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    function text(x, y, value, attrs = {}) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      el.setAttribute("x", x);
+      el.setAttribute("y", y);
+      el.textContent = value;
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    function path(d, attrs = {}) {
+      const el = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      el.setAttribute("d", d);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    function drawGrid() {
+      const g = $("grid");
+      g.innerHTML = "";
+      for (let t = 0; t <= geom.max + 1e-9; t += 0.4) {
+        g.appendChild(line(gx(t), gy(0), gx(t), gy(geom.max), { stroke: "#ece6dc", "stroke-width": 1 }));
+        g.appendChild(line(gx(0), gy(t), gx(geom.max), gy(t), { stroke: "#ece6dc", "stroke-width": 1 }));
+      }
+      g.appendChild(line(gx(0), gy(0), gx(geom.max), gy(0), { stroke: "#2f3438", "stroke-width": 1.4 }));
+      g.appendChild(line(gx(0), gy(0), gx(0), gy(geom.max), { stroke: "#2f3438", "stroke-width": 1.4 }));
+      g.appendChild(line(gx(0), gy(1), gx(1), gy(0), { stroke: "#5c6470", "stroke-width": 2.2 }));
+      g.appendChild(text(gx(1.02), gy(0) + 18, "x+y=1", { class: "plot-label" }));
+      g.appendChild(text(gx(geom.max) - 4, gy(0) + 30, "component 1", { class: "plot-label", "text-anchor": "end" }));
+      g.appendChild(text(gx(0) - 34, gy(geom.max) + 8, "component 2", { class: "plot-label", transform: `rotate(-90 ${gx(0) - 34} ${gy(geom.max) + 8})` }));
+      for (const tick of [0, 0.5, 1.0, 1.5, 2.0]) {
+        g.appendChild(text(gx(tick), gy(0) + 18, tick.toFixed(1), { class: "plot-label", "text-anchor": "middle" }));
+        g.appendChild(text(gx(0) - 12, gy(tick) + 4, tick.toFixed(1), { class: "plot-label", "text-anchor": "end" }));
+      }
+    }
+
+    function drawGeometry() {
+      const layer = $("geometryLayer");
+      layer.innerHTML = "";
+
+      const target = probFromX(state.targetX);
+      const current = probFromX(state.currentX);
+      const proj = projectSurprise(target, current);
+
+      const targetEnd = [target[0] * 2.55, target[1] * 2.55];
+      layer.appendChild(line(gx(0), gy(0), gx(targetEnd[0]), gy(targetEnd[1]), {
+        stroke: "var(--target)",
+        "stroke-width": 5,
+        "stroke-linecap": "round",
+        "marker-end": "url(#arrowTarget)",
+        opacity: 0.9,
+      }));
+
+      layer.appendChild(line(gx(0), gy(0), gx(current[0]), gy(current[1]), {
+        stroke: "var(--current)",
+        "stroke-width": 3.5,
+        "stroke-linecap": "round",
+        "marker-end": "url(#arrowCurrent)",
+      }));
+
+      const surpriseCurve = [];
+      for (let i = 0; i <= 240; i++) {
+        const x = eps + (1 - 2 * eps) * (i / 240);
+        const s = surprise(probFromX(x));
+        if (s[0] <= geom.max && s[1] <= geom.max) {
+          surpriseCurve.push(`${surpriseCurve.length === 0 ? "M" : "L"} ${gx(s[0])} ${gy(s[1])}`);
+        }
+      }
+      layer.appendChild(path(surpriseCurve.join(" "), {
+        fill: "none",
+        stroke: "var(--surprise)",
+        "stroke-width": 2,
+        opacity: 0.34,
+      }));
+
+      layer.appendChild(line(gx(0), gy(0), gx(proj.surprise[0]), gy(proj.surprise[1]), {
+        stroke: "var(--surprise)",
+        "stroke-width": 2.2,
+        "stroke-dasharray": "7 6",
+        "marker-end": "url(#arrowSurprise)",
+      }));
+
+      layer.appendChild(line(gx(proj.surprise[0]), gy(proj.surprise[1]), gx(proj.point[0]), gy(proj.point[1]), {
+        stroke: "var(--projection)",
+        "stroke-width": 2,
+        opacity: 0.85,
+      }));
+
+      layer.appendChild(line(gx(0), gy(0), gx(proj.point[0]), gy(proj.point[1]), {
+        stroke: "var(--projection)",
+        "stroke-width": 5,
+        opacity: 0.28,
+      }));
+
+      layer.appendChild(circle(gx(proj.point[0]), gy(proj.point[1]), 6, {
+        fill: "var(--projection)",
+        stroke: "#102a43",
+        "stroke-width": 1.5,
+      }));
+
+      const targetPoint = circle(gx(target[0]), gy(target[1]), 10, {
+        fill: "var(--target)",
+        stroke: "#102a43",
+        "stroke-width": 2,
+        class: "drag-point",
+        "data-kind": "target",
+      });
+      const currentPoint = circle(gx(current[0]), gy(current[1]), 10, {
+        fill: "var(--current)",
+        stroke: "#102a43",
+        "stroke-width": 2,
+        class: "drag-point",
+        "data-kind": "current",
+      });
+      layer.appendChild(targetPoint);
+      layer.appendChild(currentPoint);
+      layer.appendChild(circle(gx(proj.surprise[0]), gy(proj.surprise[1]), 7, {
+        fill: "var(--surprise)",
+        stroke: "#102a43",
+        "stroke-width": 1.5,
+      }));
+
+      layer.appendChild(text(gx(target[0]) + 14, gy(target[1]) - 10, "p_target", { fill: "var(--target)", "font-size": 15, "font-weight": 700 }));
+      layer.appendChild(text(gx(current[0]) + 14, gy(current[1]) + 20, "p_current", { fill: "var(--current)", "font-size": 15, "font-weight": 700 }));
+      layer.appendChild(text(gx(proj.surprise[0]) + 14, gy(proj.surprise[1]) - 8, "-log(p_current)", { fill: "var(--surprise)", "font-size": 15, "font-weight": 700 }));
+      layer.appendChild(text(gx(1.08), gy(1.02), "surprise curve", { fill: "var(--surprise)", "font-size": 13, opacity: 0.8 }));
+      layer.appendChild(text(gx(proj.point[0]) + 14, gy(proj.point[1]) + 4, "projection", { fill: "var(--projection)", "font-size": 14, "font-weight": 700 }));
+    }
+
+    function drawLoss() {
+      const layer = $("lossLayer");
+      layer.innerHTML = "";
+
+      const target = probFromX(state.targetX);
+      const current = probFromX(state.currentX);
+      const currentLoss = ce(target, current);
+      const minLoss = entropy(target);
+
+      const xs = [];
+      for (let i = 0; i <= 220; i++) {
+        const x = eps + (1 - 2 * eps) * (i / 220);
+        xs.push(x);
+      }
+      const values = xs.map((x) => ce(target, probFromX(x)));
+      const maxCurve = Math.max(1.2, Math.min(5, Math.max(...values, currentLoss) * 1.1));
+      lossPlot.maxY = maxCurve;
+
+      layer.appendChild(line(lossPlot.x0, lossPlot.y0, lossPlot.x0 + lossPlot.width, lossPlot.y0, { stroke: "#2f3438", "stroke-width": 1.2 }));
+      layer.appendChild(line(lossPlot.x0, lossPlot.y0, lossPlot.x0, lossPlot.y0 - lossPlot.height, { stroke: "#2f3438", "stroke-width": 1.2 }));
+      for (let i = 0; i <= 4; i++) {
+        const x = i / 4;
+        layer.appendChild(line(lx(x), ly(0), lx(x), ly(lossPlot.maxY), { stroke: "#eee8df", "stroke-width": 1 }));
+        layer.appendChild(text(lx(x), ly(0) + 18, x.toFixed(2), { class: "plot-label", "text-anchor": "middle" }));
+      }
+      for (let i = 0; i <= 4; i++) {
+        const y = (lossPlot.maxY / 4) * i;
+        layer.appendChild(line(lx(0), ly(y), lx(1), ly(y), { stroke: "#eee8df", "stroke-width": 1 }));
+        layer.appendChild(text(lx(0) - 10, ly(y) + 4, y.toFixed(1), { class: "plot-label", "text-anchor": "end" }));
+      }
+
+      const d = xs.map((x, idx) => `${idx === 0 ? "M" : "L"} ${lx(x)} ${ly(values[idx])}`).join(" ");
+      layer.appendChild(path(d, { fill: "none", stroke: "#2f65a7", "stroke-width": 3 }));
+      layer.appendChild(line(lx(0), ly(minLoss), lx(1), ly(minLoss), { stroke: "var(--target)", "stroke-width": 1.7, "stroke-dasharray": "6 5" }));
+      layer.appendChild(circle(lx(state.currentX), ly(currentLoss), 7, { fill: "var(--current)", stroke: "#102a43", "stroke-width": 1.5 }));
+      layer.appendChild(circle(lx(state.targetX), ly(minLoss), 7, { fill: "var(--target)", stroke: "#102a43", "stroke-width": 1.5 }));
+      layer.appendChild(text(lx(state.currentX) + 10, ly(currentLoss) - 8, `CE ${fmt(currentLoss)}`, { fill: "var(--current)", "font-size": 13, "font-weight": 700 }));
+      layer.appendChild(text(lx(state.targetX) + 10, ly(minLoss) + 18, `min ${fmt(minLoss)}`, { fill: "var(--target)", "font-size": 13, "font-weight": 700 }));
+      layer.appendChild(text(lx(1) - 4, ly(0) + 34, "p_current[0]", { class: "plot-label", "text-anchor": "end" }));
+      layer.appendChild(text(lx(0) - 36, ly(lossPlot.maxY) + 4, "loss", { class: "plot-label", transform: `rotate(-90 ${lx(0) - 36} ${ly(lossPlot.maxY) + 4})` }));
+    }
+
+    function updateReadouts() {
+      const target = probFromX(state.targetX);
+      const current = probFromX(state.currentX);
+      const proj = projectSurprise(target, current);
+      const loss = ce(target, current);
+      const minLoss = entropy(target);
+      const grad = [current[0] - target[0], current[1] - target[1]];
+
+      $("targetVec").textContent = pairText(target);
+      $("currentVec").textContent = pairText(current);
+      $("surpriseVec").textContent = pairText(proj.surprise);
+      $("ceValue").textContent = fmt(loss);
+      $("entropyValue").textContent = fmt(minLoss);
+      $("projectionLength").textContent = fmt(proj.length);
+      $("gradientValue").textContent = pairText(grad);
+    }
+
+    function render() {
+      drawGrid();
+      drawGeometry();
+      drawLoss();
+      updateReadouts();
+    }
+
+    function clientToProbX(evt) {
+      const svg = $("geometrySvg");
+      const rect = svg.getBoundingClientRect();
+      const px = evt.clientX - rect.left;
+      const py = evt.clientY - rect.top;
+      const scaleX = 760 / rect.width;
+      const scaleY = 680 / rect.height;
+      const sx = px * scaleX;
+      const sy = py * scaleY;
+      const dataX = ((sx - geom.x0) / geom.width) * geom.max;
+      const dataY = ((geom.y0 - sy) / geom.height) * geom.max;
+      const projectedX = (dataX - dataY + 1) / 2;
+      return clamp(projectedX, eps, 1 - eps);
+    }
+
+    $("geometrySvg").addEventListener("pointerdown", (evt) => {
+      const kind = evt.target.dataset.kind;
+      if (!kind) return;
+      state.dragging = kind;
+      evt.target.setPointerCapture(evt.pointerId);
+    });
+
+    $("geometrySvg").addEventListener("pointermove", (evt) => {
+      if (!state.dragging) return;
+      const x = clientToProbX(evt);
+      if (state.dragging === "target") state.targetX = x;
+      if (state.dragging === "current") state.currentX = x;
+      render();
+    });
+
+    window.addEventListener("pointerup", () => {
+      state.dragging = null;
+    });
+
+    $("resetBtn").addEventListener("click", () => {
+      state.targetX = 0.2;
+      state.currentX = 0.8;
+      render();
+    });
+
+    render();
+  </script>
+</body>
+</html>
