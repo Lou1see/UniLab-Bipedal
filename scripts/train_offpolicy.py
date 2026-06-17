@@ -103,7 +103,11 @@ def resolve_play_actor_spec(
     rl_cfg = cast(dict[str, Any], OmegaConf.to_container(cfg.algo, resolve=True))
     custom_runtime = resolve_custom_offpolicy_runtime(rl_cfg)
     if custom_runtime is None:
-        return "sac", {}
+        algo_params = getattr(cfg.algo, "algo_params", {})
+        return "sac", {
+            "log_std_min": float(getattr(algo_params, "log_std_min", -5.0)),
+            "log_std_max": float(getattr(algo_params, "log_std_max", 0.0)),
+        }
 
     actor_algo_type = str(custom_runtime.algo_type or algo_name)
     actor_kwargs = custom_runtime.build_model_kwargs(
@@ -202,6 +206,11 @@ def build_runner(algo_name: str, cfg: DictConfig):
             if _custom_runtime.algo_type is not None:
                 _algo_type = str(_custom_runtime.algo_type)
             _actor_kwargs = dict(_learner_extra_kwargs)
+        else:
+            _actor_kwargs = {
+                "log_std_min": float(cfg.algo.algo_params.log_std_min),
+                "log_std_max": float(cfg.algo.algo_params.log_std_max),
+            }
 
         _learner = _learner_cls(
             obs_dim=_obs_dim,
@@ -218,6 +227,8 @@ def build_runner(algo_name: str, cfg: DictConfig):
             critic_hidden_dim=cfg.algo.critic_hidden_dim,
             num_atoms=cfg.algo.num_atoms,
             use_layer_norm=cfg.algo.use_layer_norm,
+            log_std_min=cfg.algo.algo_params.log_std_min,
+            log_std_max=cfg.algo.algo_params.log_std_max,
             max_grad_norm=cfg.algo.algo_params.max_grad_norm,
             use_amp=cfg.training.use_amp,
             amp_dtype=cfg.algo.algo_params.amp_dtype,
@@ -227,6 +238,20 @@ def build_runner(algo_name: str, cfg: DictConfig):
             critic_obs_dim=_critic_dim,
             **_learner_extra_kwargs,
         )
+
+        _warm_start_cfg = cast(
+            dict[str, Any] | None,
+            OmegaConf.to_container(cfg.algo.warm_start, resolve=True)
+            if getattr(cfg.algo, "warm_start", None) is not None
+            else None,
+        )
+        # Inject actor params so sac_checkpoint warm-start can build the
+        # correct actor architecture to load the checkpoint weights.
+        if _warm_start_cfg is not None:
+            _warm_start_cfg["actor_hidden_dim"] = int(cfg.algo.actor_hidden_dim)
+            _warm_start_cfg["use_layer_norm"] = bool(cfg.algo.use_layer_norm)
+            _warm_start_cfg["log_std_min"] = float(cfg.algo.algo_params.log_std_min)
+            _warm_start_cfg["log_std_max"] = float(cfg.algo.algo_params.log_std_max)
 
         return DoubleBufferOffPolicyRunner(
             learner=_learner,
@@ -254,6 +279,7 @@ def build_runner(algo_name: str, cfg: DictConfig):
             replay_prefetch_mode=replay_prefetch_mode,
             verbose_metrics=verbose_metrics,
             seed=cfg.algo.seed,
+            warm_start_cfg=_warm_start_cfg,
         )
 
     if algo_name == "td3":

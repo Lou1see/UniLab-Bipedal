@@ -25,10 +25,25 @@ obs_normalization: true
 use_layer_norm: true
 use_symmetry: false
 actor: {}
+warm_start:
+  enabled: false
+  source: standing_controller
+  steps: 100000
+  noise_std: 0.15
+  action_hold: 4
+  learning_after_warm_start: true
+  relax_termination_height: null
+  checkpoint_path: null
+  actor_hidden_dim: 512
+  use_layer_norm: true
+  log_std_min: -5.0
+  log_std_max: 0.0
 algo_params:
   alpha_lr: 3.0e-4
   alpha_init: 0.01
   target_entropy_ratio: 0.0
+  log_std_min: -5.0
+  log_std_max: 0.0
   max_grad_norm: 0.0
   amp_dtype: auto
   use_compile: true

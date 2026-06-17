@@ -79,6 +79,7 @@ class OffPolicyRunner(AsyncRunner):
         trace_output_dir: str | None = None,
         trace_thread_time: bool = False,
         trace_cuda_events: bool = True,
+        warm_start_cfg: dict[str, Any] | None = None,
     ):
         super().__init__(
             env_name=env_name,
@@ -115,6 +116,7 @@ class OffPolicyRunner(AsyncRunner):
         self.trace_output_dir = trace_output_dir
         self.trace_thread_time = trace_thread_time
         self.trace_cuda_events = trace_cuda_events
+        self.warm_start_cfg = warm_start_cfg or {}
 
         apply_training_seed(self.seed, torch_runtime=True, cuda=True)
         self.obs_dim, self.action_dim, self.critic_obs_dim = get_env_dims(

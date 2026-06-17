@@ -27,6 +27,8 @@ def build_actor(
             obs_dim=obs_dim,
             action_dim=action_dim,
             hidden_dim=actor_hidden_dim,
+            log_std_min=kwargs.get("log_std_min", -5.0),
+            log_std_max=kwargs.get("log_std_max", 0.0),
             use_layer_norm=use_layer_norm,
             device=device,
         )

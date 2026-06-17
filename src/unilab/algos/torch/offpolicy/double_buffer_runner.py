@@ -109,6 +109,37 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         replay_buffer.trace_thread_time = self.trace_thread_time
         replay_buffer.trace_cuda_events = self.trace_cuda_events
 
+        # --- warm-start replay prefill (runs before collector / pipeline) ---
+        warm_start_stats: dict[str, object] = {}
+        if self.warm_start_cfg.get("enabled", False):
+            from unilab.algos.torch.offpolicy.warm_start import run_warm_start
+
+            warm_start_stats = run_warm_start(
+                env_name=self.env_name,
+                num_envs=self.num_envs,
+                sim_backend=self.sim_backend,
+                env_cfg_override=self.env_cfg_override,
+                replay_buffer=replay_buffer,
+                config=self.warm_start_cfg,
+                seed=self.seed,
+            )
+            if not self.warm_start_cfg.get("learning_after_warm_start", True):
+                print(
+                    "[DoubleBufferRunner] Warm-start only "
+                    f"(learning_after_warm_start=false): {warm_start_stats}"
+                )
+                ckpt_path = os.path.join(log_dir, "model_warm_start.pt")
+                torch.save(self.learner.get_state_dict(), ckpt_path)
+                self.last_run_summary = {
+                    "status": "warm_start_only",
+                    "completed_iterations": 0,
+                    "total_env_steps": int(warm_start_stats.get("total_steps", 0)),
+                    "warm_start": warm_start_stats,
+                    "last_checkpoint": ckpt_path,
+                    "training_wall_time_sec": time.time() - train_start_wall,
+                }
+                return
+
         # --- replay pipeline (double buffer) ---
         sample_count = self.batch_size * self.updates_per_step
         collector_pack_request_queue = _SPAWN_CTX.Queue(maxsize=1)
@@ -245,6 +276,14 @@ class DoubleBufferOffPolicyRunner(OffPolicyRunner):
         )
         if self.verbose_metrics:
             logger.log_status("Verbose metrics: enabled (field-level pack CSV)")
+        if warm_start_stats:
+            logger.log_status(
+                "Warm-start prefill: "
+                f"steps={warm_start_stats.get('total_steps', 0)}, "
+                f"buf={warm_start_stats.get('buffer_size', 0)}, "
+                f"mean_ep_len={warm_start_stats.get('mean_ep_length', 0.0):.1f}, "
+                f"terminated_rate={warm_start_stats.get('terminated_rate', 0.0):.3f}"
+            )
         logger.start()
 
         # Dump network computation graphs to TensorBoard (duck-typing: any learner

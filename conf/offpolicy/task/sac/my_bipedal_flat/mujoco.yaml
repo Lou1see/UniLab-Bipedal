@@ -11,9 +11,21 @@ algo:
   replay_buffer_n: 512
   batch_size: 8192
   gamma: 0.99
+  warm_start:
+    enabled: true
+    source: standing_controller
+    steps: 100000
+    noise_std: 0.15
+    action_hold: 4
+    learning_after_warm_start: true
+    relax_termination_height: 0.35
+    checkpoint_path: null
   algo_params:
-    alpha_init: 0.001
-    target_entropy_ratio: 0.0
+    alpha_init: 0.1
+    target_entropy_ratio: 0.5
+    log_std_min: -2.0
+    log_std_max: -0.5
+    max_grad_norm: 10.0
     use_compile: false
 env:
   control_config:
@@ -52,7 +64,7 @@ reward:
     is_terminated: -200.0
   tracking_sigma: 0.5
   tracking_ang_sigma: 0.7071
-  base_height_min: 0.50
+  base_height_min: 0.35
   base_height_max: 1.0
   phase_height_base: 0.7
   phase_height_amp: 0.08

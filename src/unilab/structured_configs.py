@@ -20,6 +20,24 @@ class BaseConfig:
 
 
 @dataclass
+class WarmStartConfig:
+    """Owner-config for warm-start replay buffer prefill."""
+
+    enabled: bool = False
+    source: str = "standing_controller"
+    steps: int = 100_000
+    noise_std: float = 0.15
+    action_hold: int = 4
+    learning_after_warm_start: bool = True
+    relax_termination_height: Optional[float] = None
+    checkpoint_path: Optional[str] = None
+    actor_hidden_dim: int = 512
+    use_layer_norm: bool = True
+    log_std_min: float = -5.0
+    log_std_max: float = 0.0
+
+
+@dataclass
 class SACAlgoParams:
     alpha_lr: float = 3e-4
     alpha_init: float = 0.01
@@ -56,6 +74,7 @@ class SACConfig(BaseConfig):
     use_layer_norm: bool = True
     use_symmetry: bool = False
     actor: dict[str, Any] = field(default_factory=dict)
+    warm_start: WarmStartConfig = field(default_factory=WarmStartConfig)
     algo_params: SACAlgoParams = field(default_factory=SACAlgoParams)
 
 
