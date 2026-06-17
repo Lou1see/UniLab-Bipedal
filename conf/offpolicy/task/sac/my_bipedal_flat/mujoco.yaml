@@ -1,0 +1,64 @@
+# @package _global_
+training:
+  task_name: MyBipedalWalkFlat
+  sim_backend: mujoco
+algo:
+  num_envs: 4096
+  max_iterations: 5000
+  save_interval: 1000
+  learning_starts: 10
+  updates_per_step: 8
+  replay_buffer_n: 512
+  batch_size: 8192
+  gamma: 0.99
+  algo_params:
+    alpha_init: 0.001
+    target_entropy_ratio: 0.0
+    use_compile: false
+env:
+  control_config:
+    action_scale: 0.25
+  noise_config:
+    level: 1.0
+    scale_joint_angle: 0.01
+    scale_joint_vel: 1.5
+    scale_gyro: 0.2
+    scale_gravity: 0.05
+    scale_linvel: 0.5
+  curriculum:
+    enabled: true
+reward:
+  scales:
+    track_lin_vel_xy: 2.0
+    track_lin_vel_y: 1.0
+    track_ang_vel: 1.0
+    body_orientation_l2: -1.0
+    body_ang_vel: -0.05
+    flat_orientation: -0.5
+    angular_momentum: -0.025
+    foot_gait: 0.5
+    symmetry: -0.5
+    torque_penalty: -0.03
+    action_rate_l2: -0.05
+    joint_acc_l2: -2.5e-7
+    pose: 1.0
+    foot_clearance: -1.0
+    foot_slip: -0.25
+    soft_landing: -0.001
+    base_height: 0.3
+    phase_height: 0.3
+    joint_pos_limits: -10.0
+    stand_still: -1.0
+    is_terminated: -200.0
+  tracking_sigma: 0.5
+  tracking_ang_sigma: 0.7071
+  base_height_min: 0.50
+  base_height_max: 1.0
+  phase_height_base: 0.7
+  phase_height_amp: 0.08
+  gait_period: 0.6
+  command_threshold: 0.1
+  max_tilt_deg: 70.0
+  walking_threshold: 0.1
+  running_threshold: 1.5
+  foot_clearance_target: 0.10
