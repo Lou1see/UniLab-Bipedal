@@ -154,12 +154,12 @@ class MyBipedalRewardConfig:
             # Constraints
             "joint_pos_limits": -10.0,
             "stand_still": -1.0,
-            "is_terminated": -200.0,
+            "is_terminated": -50.0,
         }
     )
     tracking_sigma: float = 0.5
     tracking_ang_sigma: float = math.sqrt(0.5)
-    base_height_min: float = 0.50
+    base_height_min: float = 0.35
     base_height_max: float = 1.0
     phase_height_base: float = 0.7
     phase_height_amp: float = 0.08

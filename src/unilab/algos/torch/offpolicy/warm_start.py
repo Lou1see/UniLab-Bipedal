@@ -168,7 +168,6 @@ def run_warm_start(
         if config.source == "sac_checkpoint":
             if not config.checkpoint_path:
                 raise ValueError("warm_start source='sac_checkpoint' requires checkpoint_path")
-            import torch
 
             from unilab.algos.torch.common.actor_factory import build_actor
 
