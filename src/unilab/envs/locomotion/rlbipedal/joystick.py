@@ -30,15 +30,17 @@ from unilab.envs.locomotion.common.base import (
     ControlConfigBase,
     LocomotionBaseCfg,
     LocomotionBaseEnv,
+)
+from unilab.envs.locomotion.common.base import (
     Sensor as LocomotionSensor,
 )
-from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
-from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 from unilab.envs.locomotion.common.commands import (
     Commands,
     sample_heading_commands,
     zero_small_xy_commands,
 )
+from unilab.envs.locomotion.common.domain_rand import DomainRandConfig
+from unilab.envs.locomotion.common.dr_provider import LocomotionDRProvider
 
 # ---------------------------------------------------------------------------
 # Config dataclasses
@@ -113,9 +115,9 @@ class CurriculumConfig:
     velocity_stages: list[dict] = field(
         default_factory=lambda: [
             {"step": 0, "lin_vel_x": (-0.05, 0.05), "lin_vel_y": (-0.05, 0.05), "ang_vel_z": (-0.05, 0.05)},
-            {"step": 2000 * 24, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (2.5, 3.0)},
-            {"step": 4000 * 24, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-2.5, -3.0)},
-            {"step": 6000 * 24, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-3.0, 3.0)},
+            {"step": 2000 * 24, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (1.5, 2.0)},
+            {"step": 4000 * 24, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-2.0, -1.5)},
+            {"step": 6000 * 24, "lin_vel_x": (-1.0, 1.0), "lin_vel_y": (-2.0, 2.0)},
         ]
     )
 
@@ -130,14 +132,18 @@ class MyBipedalRewardConfig:
             "track_lin_vel_xy": 2.0,
             "track_lin_vel_y": 1.0,
             "track_ang_vel": 1.0,
+            "base_lin_vel_z": -2.0,
+            "both_feet_air": -2.0,
+            "feet_air_time": 0.6,
             # Orientation / stability
             "body_orientation_l2": -1.0,
             "body_ang_vel": -0.05,
             "flat_orientation": -0.5,
             "angular_momentum": -0.025,
             # Gait
-            "foot_gait": 0.5,
+            "foot_gait": 1.5,
             "symmetry": -0.5,
+            "foot_forward_step": 0.4,
             # Energy / effort
             "torque_penalty": -0.03,
             "action_rate_l2": -0.05,
@@ -147,10 +153,10 @@ class MyBipedalRewardConfig:
             # Foot constraints
             "foot_clearance": -1.0,
             "foot_slip": -0.25,
-            "soft_landing": -0.001,
+            "soft_landing": -0.20,
             # Height
             "base_height": 0.3,
-            "phase_height": 0.3,
+            "phase_height": 0.0,
             # Constraints
             "joint_pos_limits": -10.0,
             "stand_still": -1.0,
@@ -406,7 +412,6 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
         # Termination
         max_tilt_rad = math.radians(self._reward_cfg.max_tilt_deg)
         tilt = np.arccos(np.clip(gravity[:, 2], -1.0, 1.0))
-        base_height = self._backend.get_sensor_data("left_foot_pos")[:, 2]  # use as relative
         actual_base_z = self._terrain_relative_base_height()
         fell_over = tilt > max_tilt_rad
         too_low = actual_base_z < self._reward_cfg.base_height_min
@@ -432,15 +437,17 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
         left_fc = np.asarray(self._backend.get_sensor_data("left_foot_contact") > 0.5, dtype=bool)
         right_fc = np.asarray(self._backend.get_sensor_data("right_foot_contact") > 0.5, dtype=bool)
         current_contact = np.column_stack([left_fc, right_fc])
-
+        touchdown = current_contact & (~self._prev_contact)
+        last_air_time = self._air_time.copy()
         self._contact_time, self._air_time = _update_contact_times(
             current_contact, self._prev_contact, self._contact_time, self._air_time, self._cfg.ctrl_dt
         )
-        self._prev_contact = current_contact.copy()
-
         state.info["feet_contact"] = current_contact.astype(get_global_dtype())
+        state.info["feet_touchdown"] = touchdown.astype(get_global_dtype())
+        state.info["feet_last_air_time"] = last_air_time
         state.info["feet_contact_time"] = self._contact_time.copy()
         state.info["feet_air_time"] = self._air_time.copy()
+        self._prev_contact = current_contact.copy()
 
         # Estimate actuator torques from position control model
         # tau = kp * (q_des - q) - kd * dq
@@ -638,6 +645,8 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
             _add("foot_gait", self._r_foot_gait(info, commands))
         if s.get("symmetry", 0) != 0:
             _add("symmetry", self._r_symmetry(dof_pos))
+        if s.get("foot_forward_step", 0) != 0:
+            _add("foot_forward_step",self._r_foot_forward_step(info, commands),)
 
         # Energy / effort
         if s.get("torque_penalty", 0) != 0:
@@ -653,7 +662,7 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
 
         # Foot constraints
         if s.get("foot_clearance", 0) != 0:
-            _add("foot_clearance", self._r_foot_clearance(commands))
+            _add("foot_clearance", self._r_foot_clearance(info, commands))
         if s.get("foot_slip", 0) != 0:
             _add("foot_slip", self._r_foot_slip(info, commands))
         if s.get("soft_landing", 0) != 0:
@@ -673,8 +682,19 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
         if s.get("is_terminated", 0) != 0:
             _add("is_terminated", self._r_is_terminated(terminated))
 
+        #限制竖直速度
+        if s.get("base_lin_vel_z", 0) != 0:
+            _add("base_lin_vel_z",self._r_base_lin_vel_z(linvel),)
+
+        #限制双脚同时离地
+        if s.get("both_feet_air", 0) != 0:
+            _add("both_feet_air",self._r_both_feet_air(info, commands),)
+
         if reward_log is not None:
             info["_reward_log"] = reward_log
+
+        if s.get("feet_air_time", 0.0) != 0.0:
+            _add("feet_air_time",self._r_feet_air_time(info, commands),)
 
         return reward * self._cfg.ctrl_dt
 
@@ -698,6 +718,31 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
         err = np.square(commands[:, 2] - gyro[:, 2])
         return np.exp(-err / (std * std))
 
+    def _r_base_lin_vel_z(self,linvel: np.ndarray,) -> np.ndarray:
+        """Penalty for vertical motion of the robot base."""
+        return np.square(linvel[:, 2])
+
+    def _r_both_feet_air(self,info: dict,commands: np.ndarray,) -> np.ndarray:
+        """Penalty when both feet are simultaneously off the ground."""
+        dtype = get_global_dtype()
+        contact = info.get("feet_contact",np.zeros((self._num_envs, 2), dtype=dtype),)
+        moving = (np.linalg.norm(commands[:, :2], axis=1)> self._reward_cfg.command_threshold)
+        left_air = contact[:, 0] < 0.5
+        right_air = contact[:, 1] < 0.5
+        both_air = left_air & right_air
+        return (both_air.astype(dtype)* moving.astype(dtype))
+
+    def _r_feet_air_time(self,info: dict,commands: np.ndarray,) -> np.ndarray:
+        """Reward a reasonable swing duration at touchdown."""
+        dtype = get_global_dtype()
+        touchdown = info.get("feet_touchdown",np.zeros((self._num_envs, 2), dtype=dtype),)
+        last_air_time = info.get("feet_last_air_time",np.zeros((self._num_envs, 2), dtype=dtype),)
+        moving = (np.linalg.norm(commands[:, :2], axis=1)> self._reward_cfg.command_threshold).astype(dtype)
+        # 当前步态周期是0.6秒，半周期约0.3秒
+        target_air_time = 0.20
+        air_reward = np.clip(last_air_time - target_air_time,0.0,0.10,)
+        return (np.sum(air_reward * touchdown, axis=1) * moving)
+
     def _r_body_orientation_l2(self, gravity: np.ndarray) -> np.ndarray:
         """Penalty for deviation from upright (roll/pitch squared)."""
         return np.sum(np.square(gravity[:, :2]), axis=1)  # noqa
@@ -720,16 +765,29 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
 
     def _r_foot_gait(self, info: dict, commands: np.ndarray) -> np.ndarray:
         """Clock-based foot gait tracking (period=0.6, offset [0, 0.5])."""
+        dtype = get_global_dtype()
         phase = info.get("gait_phase", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
         contact = info.get("feet_contact", np.zeros((self._num_envs, 2), dtype=get_global_dtype()))
         period = 2.0 * math.pi
         expected_l = (phase[:, 0] % period) < period * 0.56
         expected_r = (phase[:, 1] % period) < period * 0.56
-        match_l = (contact[:, 0] > 0.5) == expected_l
-        match_r = (contact[:, 1] > 0.5) == expected_r
-        reward = (match_l.astype(get_global_dtype()) + match_r.astype(get_global_dtype())) * 0.5
-        moving = np.linalg.norm(commands[:, :2], axis=1) > self._reward_cfg.command_threshold
-        return reward * moving
+        actual_l = contact[:, 0] > 0.5
+        actual_r = contact[:, 1] > 0.5
+        # 匹配预期接触状态：+1 不匹配预期接触状态：-1
+        score_l = np.where(actual_l == expected_l,1.0,-1.0,)
+        score_r = np.where(actual_r == expected_r,1.0,-1.0,)
+        # 两脚都正确：+1 一脚正确一脚错误：0 两脚都错误：-1
+        reward = 0.5 * (score_l + score_r)
+        # 双脚同时腾空
+        both_air = (~actual_l) & (~actual_r)
+        # 当前预设步态中，至少应该有一只脚接触
+        expected_support = expected_l | expected_r
+        # 本来应该有支撑脚，却双脚腾空
+        unexpected_flight = both_air & expected_support
+        # 额外惩罚双脚腾空
+        reward = reward - unexpected_flight.astype(dtype)
+        moving = (np.linalg.norm(commands[:, :2], axis=1)> self._reward_cfg.command_threshold)
+        return (reward.astype(dtype) * moving.astype(dtype))
 
     def _r_symmetry(self, dof_pos: np.ndarray) -> np.ndarray:
         """L/R joint amplitude symmetry penalty."""
@@ -750,6 +808,35 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
                 rm = np.abs(all_diff[:, ri])
                 dev += np.square(lm - rm)
         return dev
+
+    def _r_foot_forward_step(self,info: dict,commands: np.ndarray,) -> np.ndarray:
+        """Encourage the expected swing foot to move ahead of the stance foot."""
+        dtype = get_global_dtype()
+        phase = info.get("gait_phase",np.zeros((self._num_envs, 2), dtype=dtype),)
+        contact = info.get("feet_contact",np.zeros((self._num_envs, 2), dtype=dtype),)
+        left_pos = self._backend.get_sensor_data("left_foot_pos")
+        right_pos = self._backend.get_sensor_data("right_foot_pos")
+        period = 2.0 * math.pi
+        stance_ratio = 0.56
+        expected_left_stance = (phase[:, 0] % period) < period * stance_ratio
+        expected_right_stance = (phase[:, 1] % period) < period * stance_ratio
+        expected_left_swing = ~expected_left_stance
+        expected_right_swing = ~expected_right_stance
+        actual_left_contact = contact[:, 0] > 0.5
+        actual_right_contact = contact[:, 1] > 0.5
+        # 注意：这里不要求摆动脚必须已经离地。因为你现在的问题正是“后脚脚尖点地”。只要 phase 认为它该摆动，就要求它向前移动。
+        valid_left_swing = (expected_left_swing& actual_right_contact)
+        valid_right_swing = (expected_right_swing& actual_left_contact)
+        # y 是前进方向
+        left_relative_y = (left_pos[:, 1] - right_pos[:, 1])
+        right_relative_y = (right_pos[:, 1] - left_pos[:, 1])
+        # 希望摆动脚最终领先支撑脚约 8 cm
+        target_step = 0.08
+        left_score = np.clip(left_relative_y / target_step,-1.0,1.0,)
+        right_score = np.clip(right_relative_y / target_step,-1.0,1.0,)
+        moving_forward = (commands[:, 1]> self._reward_cfg.command_threshold).astype(dtype)
+        reward = (left_score * valid_left_swing.astype(dtype)+ right_score * valid_right_swing.astype(dtype))
+        return reward.astype(dtype) * moving_forward
 
     def _r_torque_penalty(self) -> np.ndarray:
         """Penalize mean absolute actuator torque (estimated from position control)."""
@@ -784,16 +871,25 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
         result = np.where(running, r_run, np.where(walking, r_walk, r_stand))
         return result
 
-    def _r_foot_clearance(self, commands: np.ndarray) -> np.ndarray:
-        """Penalty for foot clearance below target during swing."""
+    def _r_foot_clearance(self,info: dict,commands: np.ndarray,) -> np.ndarray:
+        """Penalty for insufficient clearance during expected swing phase."""
         dtype = get_global_dtype()
         target = self._reward_cfg.foot_clearance_target
-        moving = np.linalg.norm(commands[:, :2], axis=1) > self._reward_cfg.command_threshold
-        l_z = self._backend.get_sensor_data("left_foot_pos")[:, 2]
-        r_z = self._backend.get_sensor_data("right_foot_pos")[:, 2]
-        l_err = np.clip(target - l_z, 0.0, None)
-        r_err = np.clip(target - r_z, 0.0, None)
-        return (np.square(l_err) + np.square(r_err)) * moving
+        phase = info.get("gait_phase",np.zeros((self._num_envs, 2), dtype=dtype),)
+        period = 2.0 * math.pi
+        stance_ratio = 0.56
+        expected_left_stance = (phase[:, 0] % period) < period * stance_ratio
+        expected_right_stance = (phase[:, 1] % period) < period * stance_ratio
+        # 由 gait phase 决定哪只脚应该摆动，而不是由 contact 决定
+        expected_left_swing = ~expected_left_stance
+        expected_right_swing = ~expected_right_stance
+        left_height = self._backend.get_sensor_data("left_foot_pos")[:, 2]
+        right_height = self._backend.get_sensor_data("right_foot_pos")[:, 2]
+        left_error = np.clip(target - left_height,0.0,None,)
+        right_error = np.clip(target - right_height,0.0,None,)
+        moving = (np.linalg.norm(commands[:, :2], axis=1)> self._reward_cfg.command_threshold).astype(dtype)
+        penalty = (np.square(left_error)* expected_left_swing.astype(dtype)+ np.square(right_error)* expected_right_swing.astype(dtype))
+        return penalty * moving
 
     def _r_foot_slip(self, info: dict, commands: np.ndarray) -> np.ndarray:
         """Penalty for foot slipping (xy velocity of foot during contact)."""
@@ -806,22 +902,22 @@ class MyBipedalWalkEnv(LocomotionBaseEnv):
         r_slip = np.sum(np.square(r_vel[:, :2]), axis=1) * contact[:, 1]
         return (l_slip + r_slip) * moving
 
-    def _r_soft_landing(self, info: dict, commands: np.ndarray) -> np.ndarray:
+    def _r_soft_landing(self,info: dict,commands: np.ndarray,) -> np.ndarray:
         """Penalty for impact force at foot touchdown."""
         dtype = get_global_dtype()
-        moving = np.linalg.norm(commands[:, :2], axis=1) > self._reward_cfg.command_threshold
-        contact = info.get("feet_contact", np.zeros((self._num_envs, 2), dtype=dtype))
-        prev = self._prev_contact.astype(dtype)
-        touch = np.maximum(contact - prev, 0.0)
-        lf = self._backend.get_sensor_data("left_foot_force")
-        rf = self._backend.get_sensor_data("right_foot_force")
-        if lf.ndim == 1:
-            lf = lf[:, None]
-        if rf.ndim == 1:
-            rf = rf[:, None]
-        lf_sum = np.sum(np.abs(lf), axis=1) * touch[:, 0]
-        rf_sum = np.sum(np.abs(rf), axis=1) * touch[:, 1]
-        return (lf_sum + rf_sum) * moving
+        moving = (np.linalg.norm(commands[:, :2], axis=1)> self._reward_cfg.command_threshold).astype(dtype)
+        touchdown = info.get("feet_touchdown",np.zeros((self._num_envs, 2), dtype=dtype),)
+        left_force = self._backend.get_sensor_data("left_foot_force")
+        right_force = self._backend.get_sensor_data("right_foot_force")
+        if left_force.ndim == 1:
+            left_force = left_force[:, None]
+        if right_force.ndim == 1:
+            right_force = right_force[:, None]
+        left_impact = (np.sum(np.abs(left_force), axis=1)* touchdown[:, 0])
+        right_impact = (np.sum(np.abs(right_force), axis=1)* touchdown[:, 1])
+        # 对数压缩，防止接触力数值过大
+        impact = np.log1p(left_impact + right_impact)
+        return impact * moving
 
     def _r_base_height_soft_bounds(self) -> np.ndarray:
         """Soft bounds on base height: [0.50, 1.0], reward=0 inside."""

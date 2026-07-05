@@ -1098,6 +1098,10 @@ def _handle_command_key(commander: KeyboardCommander, keycode: int) -> None:
         commander.nudge(commander.AXIS_VX, +1.0)
     elif keycode == _KEY_DOWN:
         commander.nudge(commander.AXIS_VX, -1.0)
+    elif keycode in (ord("A"), ord("a")):
+        commander.nudge(commander.AXIS_VY, +1.0)
+    elif keycode in (ord("D"), ord("d")):
+        commander.nudge(commander.AXIS_VY, -1.0)
     elif keycode == _KEY_LEFT:
         commander.nudge(commander.AXIS_VYAW, +1.0)
     elif keycode == _KEY_RIGHT:
@@ -1111,10 +1115,12 @@ def _handle_command_key(commander: KeyboardCommander, keycode: int) -> None:
 
 def _print_keyboard_legend(args) -> None:
     print("[play_interactive] Keyboard teleop ENABLED (drive style):")
-    print("  Up / Down    : forward / backward (vx)")
-    print("  Left / Right : turn left / right  (vyaw)")
-    print("  Enter        : full stop")
-    if str(getattr(args, "action_mode", "")) != "policy":
+    print("  Up/Down:    vx +/-")
+    print("  A/D:        vy +/-")
+    print("  Left/Right: vyaw +/-")
+    print("  Enter:      zero command")
+    print("  Backspace:  zero command")
+    if args.action_mode != "policy":
         print("  NOTE: action_mode is not 'policy'; commands will not drive the robot.")
 
 
